@@ -5,7 +5,11 @@ use std::{
     marker::PhantomData,
 };
 
-use pest::{iterators::Pair, Parser, Span};
+use pest::{
+    iterators::Pair,
+    pratt_parser::{Assoc, Op, PrattParser},
+    Parser, Span,
+};
 use pest_derive::Parser;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -107,15 +111,16 @@ impl<'a> From<Pair<'a, Rule>> for AST<'a> {
 }
 
 impl<'a> AST<'a> {
-    fn validate_generate(self) -> Result<Option<Types>, ValidationError<'a>> {
+    fn validate_generate(self, pratt: &PrattParser<Rule>) -> Result<Option<Types>, ValidationError<'a>> {
         let mut ident_types = HashMap::new();
         // let mut code_gen = T::new();
-        self.inner_validate_generate(&mut ident_types)
+        self.inner_validate_generate(&mut ident_types, pratt)
     }
 
     fn inner_validate_generate(
         self,
-        ident_types: &mut HashMap<&'a str, (Types, Span<'a>)>
+        ident_types: &mut HashMap<&'a str, (Types, Span<'a>)>,
+        pratt: &PrattParser<Rule>
     ) -> Result<Option<Types>, ValidationError<'a>> {
         let self_span = self.0.as_span();
         match self.0.as_rule() {
@@ -166,7 +171,7 @@ impl<'a> AST<'a> {
             },
             Rule::main => {
                 for p in self.0.into_inner() {
-                    AST::from(p).inner_validate_generate(ident_types)?;
+                    AST::from(p).inner_validate_generate(ident_types, pratt)?;
                 }
                 Ok(None)
             }
@@ -185,14 +190,14 @@ impl<'a> AST<'a> {
                     "{lhs_span:?}"
                 );
                 let lhs_type = AST::from(lhs)
-                    .inner_validate_generate(ident_types,)?
+                    .inner_validate_generate(ident_types, pratt)?
                     .ok_or(ValidationError::MissingType(lhs_span))?;
 
                 let expr = pairs.next().ok_or(ValidationError::MissingTokens)?;
                 let expr_span = expr.as_span();
                 debug_assert!(matches!(expr.as_rule(), Rule::expr), "{expr_span:?}");
                 let expr_type = AST::from(expr.clone())
-                    .inner_validate_generate(ident_types)?
+                    .inner_validate_generate(ident_types, pratt)?
                     .ok_or(ValidationError::MissingType(expr_span))?;
 
                 if lhs_type == expr_type {
@@ -204,14 +209,12 @@ impl<'a> AST<'a> {
                             },
                         )),
                         Entry::Vacant(e) => {
-                            let compiled_expr = ByteCode::declare_variable(ident.as_str(), lhs_type, expr);
+                            let compiled_expr =
+                                ByteCode::declare_variable(ident.as_str(), lhs_type, expr);
                             println!("{compiled_expr:#?}");
                             let mem = HashMap::new();
                             let r = match compiled_expr {
-                                ByteCode::DeclareIntVar(_, e) => e.eval(&mem),
-                                ByteCode::DeclareFloatVar(_, e) => e.eval(&mem),
-                                ByteCode::DeclareBoolVar(_, e) => e.eval(&mem),
-                                ByteCode::DeclareStringVar(_, e) => e.eval(&mem),
+                                ByteCode::DeclareVar(_, _, e) => e.eval(&mem),
                             };
                             println!("{r:#?}");
                             e.insert((lhs_type, self_span));
@@ -230,7 +233,7 @@ impl<'a> AST<'a> {
             }
             Rule::cmd => {
                 for p in self.0.into_inner() {
-                    AST::from(p).inner_validate_generate(ident_types)?;
+                    AST::from(p).inner_validate_generate(ident_types, pratt)?;
                 }
                 Ok(None)
             }
@@ -242,7 +245,7 @@ impl<'a> AST<'a> {
                 let ident_span = ident.as_span();
                 debug_assert!(matches!(ident_rule, Rule::ident), "{ident_span:?}");
                 let atom_type = AST::from(ident)
-                    .inner_validate_generate(ident_types)?
+                    .inner_validate_generate(ident_types, pratt)?
                     .ok_or(ValidationError::MissingType(ident_span))?;
 
                 if atom_type.can_do_op(Rule::cmd_read) {
@@ -263,7 +266,7 @@ impl<'a> AST<'a> {
                 let val_span = val.as_span();
                 debug_assert!(matches!(val_rule, Rule::ident), "{val_span:?}");
                 let atom_type = AST::from(val)
-                    .inner_validate_generate(ident_types)?
+                    .inner_validate_generate(ident_types, pratt)?
                     .ok_or(ValidationError::MissingType(val_span))?;
 
                 if atom_type.can_do_op(Rule::cmd_write) {
@@ -284,14 +287,14 @@ impl<'a> AST<'a> {
                 let ident_span = ident.as_span();
                 debug_assert!(matches!(ident.as_rule(), Rule::ident), "{ident_span:?}");
                 let ident_type = AST::from(ident)
-                    .inner_validate_generate(ident_types)?
+                    .inner_validate_generate(ident_types, pratt)?
                     .ok_or(ValidationError::MissingType(ident_span))?;
 
                 let expr = pairs.next().ok_or(ValidationError::MissingTokens)?;
                 let expr_span = expr.as_span();
                 debug_assert!(matches!(expr.as_rule(), Rule::expr), "{expr_span:?}");
                 let expr_type = AST::from(expr)
-                    .inner_validate_generate(ident_types)?
+                    .inner_validate_generate(ident_types, pratt)?
                     .ok_or(ValidationError::MissingType(expr_span))?;
 
                 if ident_type == expr_type {
@@ -314,7 +317,7 @@ impl<'a> AST<'a> {
                 let ident_span = ident.as_span();
                 debug_assert!(matches!(ident.as_rule(), Rule::ident), "{ident_span:?}");
                 let ident_type = AST::from(ident)
-                    .inner_validate_generate(ident_types)?
+                    .inner_validate_generate(ident_types, pratt)?
                     .ok_or(ValidationError::MissingType(ident_span))?;
 
                 let op = pairs.next().ok_or(ValidationError::MissingTokens)?;
@@ -338,7 +341,7 @@ impl<'a> AST<'a> {
                 let expr_span = expr.as_span();
                 debug_assert!(matches!(expr_rule, Rule::expr), "{expr_span:?}");
                 let expr_type = AST::from(expr)
-                    .inner_validate_generate(ident_types)?
+                    .inner_validate_generate(ident_types, pratt)?
                     .ok_or(ValidationError::MissingType(ident_span))?;
 
                 if ident_type != expr_type {
@@ -361,7 +364,7 @@ impl<'a> AST<'a> {
                 let expr_span = expr.as_span();
                 debug_assert!(matches!(expr.as_rule(), Rule::expr), "{expr_span:?}");
                 let expr_type = AST::from(expr)
-                    .inner_validate_generate(ident_types)?
+                    .inner_validate_generate(ident_types, pratt)?
                     .ok_or(ValidationError::MissingType(expr_span))?;
 
                 if expr_type != Types::Bool {
@@ -375,8 +378,7 @@ impl<'a> AST<'a> {
                 let cmd_true = pairs.next().ok_or(ValidationError::MissingTokens)?;
                 let cmd_true_span = cmd_true.as_span();
                 debug_assert!(matches!(cmd_true.as_rule(), Rule::cmd), "{cmd_true_span:?}");
-                let cmd_true_type =
-                    AST::from(cmd_true).inner_validate_generate(ident_types)?;
+                let cmd_true_type = AST::from(cmd_true).inner_validate_generate(ident_types, pratt)?;
                 debug_assert!(matches!(cmd_true_type, None), "{cmd_true_span:?}");
 
                 let cmd_false =
@@ -388,8 +390,8 @@ impl<'a> AST<'a> {
                                 matches!(cmd_false.as_rule(), Rule::cmd),
                                 "{cmd_false_span:?}"
                             );
-                            let cmd_false_type = AST::from(cmd_false)
-                                .inner_validate_generate(ident_types)?;
+                            let cmd_false_type =
+                                AST::from(cmd_false).inner_validate_generate(ident_types, pratt)?;
                             debug_assert!(matches!(cmd_false_type, None), "{cmd_false_span:?}");
                             Ok(None)
                         });
@@ -408,7 +410,7 @@ impl<'a> AST<'a> {
                 let expr_span = expr.as_span();
                 debug_assert!(matches!(expr_rule, Rule::expr), "{expr_span:?}");
                 let expr_type = AST::from(expr)
-                    .inner_validate_generate(ident_types)?
+                    .inner_validate_generate(ident_types, pratt)?
                     .ok_or(ValidationError::MissingType(expr_span))?;
 
                 if expr_type != Types::Bool {
@@ -427,7 +429,7 @@ impl<'a> AST<'a> {
                     "{cmd_change_assign_span:?}"
                 );
                 let cmd_change_assign_type =
-                    AST::from(cmd_change_assign).inner_validate_generate(ident_types)?;
+                    AST::from(cmd_change_assign).inner_validate_generate(ident_types, pratt)?;
                 debug_assert!(
                     matches!(cmd_change_assign_type, None),
                     "{cmd_change_assign_span:?}"
@@ -437,7 +439,7 @@ impl<'a> AST<'a> {
                 let cmd_rule = cmd.as_rule();
                 let cmd_span = cmd.as_span();
                 debug_assert!(matches!(cmd_rule, Rule::cmd), "{cmd_span:?}");
-                let cmd_type = AST::from(cmd).inner_validate_generate(ident_types)?;
+                let cmd_type = AST::from(cmd).inner_validate_generate(ident_types, pratt)?;
                 debug_assert!(matches!(cmd_type, None), "{cmd_span:?}");
 
                 Ok(None)
@@ -451,7 +453,7 @@ impl<'a> AST<'a> {
                 let expr_span = expr.as_span();
                 debug_assert!(matches!(expr_rule, Rule::expr), "{expr_span:?}");
                 let expr_type = AST::from(expr)
-                    .inner_validate_generate(ident_types)?
+                    .inner_validate_generate(ident_types, pratt)?
                     .ok_or(ValidationError::MissingType(expr_span))?;
 
                 if expr_type != Types::Bool {
@@ -466,7 +468,7 @@ impl<'a> AST<'a> {
                 let cmd_rule = cmd.as_rule();
                 let cmd_span = cmd.as_span();
                 debug_assert!(matches!(cmd_rule, Rule::cmd), "{cmd_span:?}");
-                let cmd_type = AST::from(cmd).inner_validate_generate(ident_types)?;
+                let cmd_type = AST::from(cmd).inner_validate_generate(ident_types, pratt)?;
                 debug_assert!(matches!(cmd_type, None), "{cmd_span:?}");
 
                 Ok(None)
@@ -492,7 +494,7 @@ impl<'a> AST<'a> {
                     "{atom_span:?}"
                 );
                 let mut result_type = AST::from(atom)
-                    .inner_validate_generate(ident_types)?
+                    .inner_validate_generate(ident_types, pratt)?
                     .ok_or(ValidationError::MissingType(atom_span))?;
 
                 for [op, rhs] in pairs.array_chunks::<2>() {
@@ -542,7 +544,7 @@ impl<'a> AST<'a> {
                         "{rhs_span:?}"
                     );
                     let rhs_type = AST::from(rhs)
-                        .inner_validate_generate(ident_types)?
+                        .inner_validate_generate(ident_types, pratt)?
                         .ok_or(ValidationError::MissingType(rhs_span))?;
 
                     if result_type != rhs_type {
@@ -582,7 +584,7 @@ impl<'a> AST<'a> {
                     "{operand_span:?}"
                 );
                 let operand_type = AST::from(operand)
-                    .inner_validate_generate(ident_types)?
+                    .inner_validate_generate(ident_types, pratt)?
                     .ok_or(ValidationError::MissingType(operand_span))?;
 
                 if operand_type.can_do_op(op_rule) {
@@ -600,66 +602,33 @@ impl<'a> AST<'a> {
 }
 
 #[derive(Debug)]
-enum UnaryOp<T> {
+enum UnaryOp {
     Negation,
     Negative,
-    Marker(PhantomData<T>),
 }
 
-trait ApplyUnaryOp<T> {
-    fn apply(self, val: Values) -> Values;
-}
-
-impl ApplyUnaryOp<i64> for UnaryOp<i64> {
+impl UnaryOp {
     fn apply(self, val: Values) -> Values {
-        let Values::Int(val) = val else {
-            panic!();
-        };
-
-        match self {
-            UnaryOp::Negative => Values::Int(-val),
-            UnaryOp::Negation => unreachable!(),
-            UnaryOp::Marker(_) => unreachable!(),
-        }
-    }
-}
-
-impl ApplyUnaryOp<f64> for UnaryOp<f64> {
-    fn apply(self, val: Values) -> Values {
-        let Values::Float(val) = val else {
-            panic!();
-        };
-
-        match self {
-            UnaryOp::Negative => Values::Float(-val),
-            UnaryOp::Negation => unreachable!(),
-            UnaryOp::Marker(_) => unreachable!(),
-        }
-    }
-}
-
-impl ApplyUnaryOp<String> for UnaryOp<String> {
-    fn apply(self, val: Values) -> Values {
-        val
-    }
-}
-
-impl ApplyUnaryOp<bool> for UnaryOp<bool> {
-    fn apply(self, val: Values) -> Values {
-        let Values::Bool(val) = val else {
-            panic!();
-        };
-
-        match self {
-            UnaryOp::Negation => Values::Bool(!val),
-            UnaryOp::Negative => unreachable!(),
-            UnaryOp::Marker(_) => unreachable!(),
+        match val {
+            Values::Int(val) => match self {
+                UnaryOp::Negative => Values::Int(-val),
+                UnaryOp::Negation => unreachable!(),
+            },
+            Values::Float(val) => match self {
+                UnaryOp::Negative => Values::Float(-val),
+                UnaryOp::Negation => unreachable!(),
+            },
+            Values::String(_) => unreachable!(),
+            Values::Bool(val) => match self {
+                UnaryOp::Negation => Values::Bool(!val),
+                UnaryOp::Negative => unreachable!(),
+            },
         }
     }
 }
 
 #[derive(Debug)]
-enum BinOp<T> {
+enum BinOp {
     Sum,
     Sub,
     Mul,
@@ -672,149 +641,79 @@ enum BinOp<T> {
     Eq,
     Or,
     And,
-    Marker(PhantomData<T>),
 }
 
-trait ApplyBinOp<T> {
-    fn apply(self, lhs: Values, rhs: Values) -> Values;
-}
-
-impl ApplyBinOp<i64> for BinOp<i64> {
+impl BinOp {
     fn apply(self, lhs: Values, rhs: Values) -> Values {
-        let Values::Int(lhs) = lhs else {
-            panic!();
-        };
-
-        let Values::Int(rhs) = rhs else {
-            panic!();
-        };
-
-        match self {
-            BinOp::Sum => Values::Int(lhs + rhs),
-            BinOp::Sub => Values::Int(lhs - rhs),
-            BinOp::Mul => Values::Int(lhs * rhs),
-            BinOp::Div => Values::Int(lhs / rhs),
-            BinOp::Le => Values::Bool(lhs <= rhs),
-            BinOp::Lt => Values::Bool(lhs < rhs),
-            BinOp::Ge => Values::Bool(lhs >= rhs),
-            BinOp::Gt => Values::Bool(lhs > rhs),
-            BinOp::Ne => Values::Bool(lhs != rhs),
-            BinOp::Eq => Values::Bool(lhs == rhs),
-
-            BinOp::Or => unreachable!(),
-            BinOp::And => unreachable!(),
-            BinOp::Marker(_) => unreachable!(),
-        }
-    }
-}
-
-impl ApplyBinOp<f64> for BinOp<f64> {
-    fn apply(self, lhs: Values, rhs: Values) -> Values {
-        let Values::Float(lhs) = lhs else {
-            panic!();
-        };
-
-        let Values::Float(rhs) = rhs else {
-            panic!();
-        };
-
-        match self {
-            BinOp::Sum => Values::Float(lhs + rhs),
-            BinOp::Sub => Values::Float(lhs - rhs),
-            BinOp::Mul => Values::Float(lhs * rhs),
-            BinOp::Div => Values::Float(lhs / rhs),
-            BinOp::Le => Values::Bool(lhs <= rhs),
-            BinOp::Lt => Values::Bool(lhs < rhs),
-            BinOp::Ge => Values::Bool(lhs >= rhs),
-            BinOp::Gt => Values::Bool(lhs > rhs),
-            BinOp::Ne => Values::Bool(lhs != rhs),
-            BinOp::Eq => Values::Bool(lhs == rhs),
-
-            BinOp::Or => unreachable!(),
-            BinOp::And => unreachable!(),
-            BinOp::Marker(_) => unreachable!(),
-        }
-    }
-}
-
-impl ApplyBinOp<String> for BinOp<String> {
-    fn apply(self, lhs: Values, rhs: Values) -> Values {
-        let Values::String(lhs) = lhs else {
-            panic!();
-        };
-
-        let Values::String(rhs) = rhs else {
-            panic!();
-        };
-
-        match self {
-            BinOp::Le => Values::Bool(lhs <= rhs),
-            BinOp::Lt => Values::Bool(lhs < rhs),
-            BinOp::Ge => Values::Bool(lhs >= rhs),
-            BinOp::Gt => Values::Bool(lhs > rhs),
-            BinOp::Ne => Values::Bool(lhs != rhs),
-            BinOp::Eq => Values::Bool(lhs == rhs),
-
-            BinOp::Sum => unreachable!(),
-            BinOp::Sub => unreachable!(),
-            BinOp::Mul => unreachable!(),
-            BinOp::Div => unreachable!(),
-
-            BinOp::Or => unreachable!(),
-            BinOp::And => unreachable!(),
-            BinOp::Marker(_) => unreachable!(),
-        }
-    }
-}
-
-impl ApplyBinOp<bool> for BinOp<bool> {
-    fn apply(self, lhs: Values, rhs: Values) -> Values {
-        let Values::Bool(lhs) = lhs else {
-            panic!();
-        };
-
-        let Values::Bool(rhs) = rhs else {
-            panic!();
-        };
-
-        match self {
-            BinOp::Le => unreachable!(),
-            BinOp::Lt => unreachable!(),
-            BinOp::Ge => unreachable!(),
-            BinOp::Gt => unreachable!(),
-            BinOp::Ne => Values::Bool(lhs != rhs),
-            BinOp::Eq => Values::Bool(lhs == rhs),
-
-            BinOp::Or => Values::Bool(lhs || rhs),
-            BinOp::And => Values::Bool(lhs && rhs),
-
-            BinOp::Sum => unreachable!(),
-            BinOp::Sub => unreachable!(),
-            BinOp::Mul => unreachable!(),
-            BinOp::Div => unreachable!(),
-
-            BinOp::Marker(_) => unreachable!(),
+        match (lhs, rhs) {
+            (Values::Int(lhs), Values::Int(rhs)) => match self {
+                BinOp::Sum => Values::Int(lhs + rhs),
+                BinOp::Sub => Values::Int(lhs - rhs),
+                BinOp::Mul => Values::Int(lhs * rhs),
+                BinOp::Div => Values::Int(lhs / rhs),
+                BinOp::Le => Values::Bool(lhs <= rhs),
+                BinOp::Lt => Values::Bool(lhs < rhs),
+                BinOp::Ge => Values::Bool(lhs >= rhs),
+                BinOp::Gt => Values::Bool(lhs > rhs),
+                BinOp::Ne => Values::Bool(lhs != rhs),
+                BinOp::Eq => Values::Bool(lhs == rhs),
+                BinOp::Or => unreachable!(),
+                BinOp::And => unreachable!(),
+            },
+            (Values::Float(lhs), Values::Float(rhs)) => match self {
+                BinOp::Sum => Values::Float(lhs + rhs),
+                BinOp::Sub => Values::Float(lhs - rhs),
+                BinOp::Mul => Values::Float(lhs * rhs),
+                BinOp::Div => Values::Float(lhs / rhs),
+                BinOp::Le => Values::Bool(lhs <= rhs),
+                BinOp::Lt => Values::Bool(lhs < rhs),
+                BinOp::Ge => Values::Bool(lhs >= rhs),
+                BinOp::Gt => Values::Bool(lhs > rhs),
+                BinOp::Ne => Values::Bool(lhs != rhs),
+                BinOp::Eq => Values::Bool(lhs == rhs),
+                BinOp::Or => unreachable!(),
+                BinOp::And => unreachable!(),
+            },
+            (Values::String(lhs), Values::String(rhs)) => match self {
+                BinOp::Le => Values::Bool(lhs <= rhs),
+                BinOp::Lt => Values::Bool(lhs < rhs),
+                BinOp::Ge => Values::Bool(lhs >= rhs),
+                BinOp::Gt => Values::Bool(lhs > rhs),
+                BinOp::Ne => Values::Bool(lhs != rhs),
+                BinOp::Eq => Values::Bool(lhs == rhs),
+                BinOp::Sum => unreachable!(),
+                BinOp::Sub => unreachable!(),
+                BinOp::Mul => unreachable!(),
+                BinOp::Div => unreachable!(),
+                BinOp::Or => unreachable!(),
+                BinOp::And => unreachable!(),
+            },
+            (Values::Bool(lhs), Values::Bool(rhs)) => match self {
+                BinOp::Ne => Values::Bool(lhs != rhs),
+                BinOp::Eq => Values::Bool(lhs == rhs),
+                BinOp::Or => Values::Bool(lhs || rhs),
+                BinOp::And => Values::Bool(lhs && rhs),
+                BinOp::Le => unreachable!(),
+                BinOp::Lt => unreachable!(),
+                BinOp::Ge => unreachable!(),
+                BinOp::Gt => unreachable!(),
+                BinOp::Sum => unreachable!(),
+                BinOp::Sub => unreachable!(),
+                BinOp::Mul => unreachable!(),
+                BinOp::Div => unreachable!(),
+            },
+            _ => unreachable!(),
         }
     }
 }
 
 #[derive(Debug)]
-struct UnaryExpr<T>
-where
-    T: Into<Values> + FromPair,
-    BinOp<T>: ApplyBinOp<T>,
-    UnaryOp<T>: ApplyUnaryOp<T>,
-{
-    op: UnaryOp<T>,
-    atom: Box<Atom<T>>,
+struct UnaryExpr {
+    op: UnaryOp,
+    atom: Box<Atom>,
 }
 
-impl<T> UnaryExpr<T>
-where
-    T: Into<Values> + FromPair,
-    BinOp<T>: ApplyBinOp<T>,
-    UnaryOp<T>: ApplyUnaryOp<T>,
-{
+impl UnaryExpr {
     pub fn eval(self, mem: &HashMap<String, Values>) -> Values {
         self.op.apply(self.atom.eval(mem))
     }
@@ -826,36 +725,26 @@ where
         let op = match op.as_rule() {
             Rule::negation => UnaryOp::Negation,
             Rule::negative => UnaryOp::Negative,
-            _ => unreachable!()
+            _ => unreachable!(),
         };
 
         let atom = pairs.next().unwrap();
         Self {
             op,
-            atom: Box::new(Atom::build(atom))
+            atom: Box::new(Atom::build(atom)),
         }
     }
 }
 
 #[derive(Debug)]
-enum Atom<T>
-where
-    T: Into<Values> + FromPair,
-    BinOp<T>: ApplyBinOp<T>,
-    UnaryOp<T>: ApplyUnaryOp<T>,
-{
-    UnaryExpr(Box<UnaryExpr<T>>),
-    Raw(T),
+enum Atom {
+    UnaryExpr(Box<UnaryExpr>),
+    Raw(Values),
     Ident(String),
-    Expr(Box<Expr<T>>),
+    Expr(Box<Expr>),
 }
 
-impl<T> Atom<T>
-where
-    T: Into<Values> + FromPair,
-    BinOp<T>: ApplyBinOp<T>,
-    UnaryOp<T>: ApplyUnaryOp<T>,
-{
+impl Atom {
     fn eval(self, mem: &HashMap<String, Values>) -> Values {
         match self {
             Atom::UnaryExpr(u) => u.eval(mem),
@@ -868,36 +757,29 @@ where
     fn build<'a>(atom: Pair<'a, Rule>) -> Self {
         match atom.as_rule() {
             Rule::ident => Self::Ident(atom.as_str().to_owned()),
+
             Rule::expr_una => Self::UnaryExpr(Box::new(UnaryExpr::build(atom))),
             Rule::expr => Self::Expr(Box::new(Expr::build(atom))),
-            Rule::r#true
-            | Rule::r#false
-            | Rule::float_val
-            | Rule::int_val
-            | Rule::string_raw
-            | Rule::string_construct => Self::Raw(T::get(atom).unwrap()),
-            _ => unreachable!()
+
+            Rule::int_val => Self::Raw(Values::Int(atom.as_str().parse().unwrap())),
+            Rule::float_val => Self::Raw(Values::Float(atom.as_str().parse().unwrap())),
+            Rule::r#true => Self::Raw(Values::Bool(atom.as_str().parse().unwrap())),
+            Rule::r#false => Self::Raw(Values::Bool(atom.as_str().parse().unwrap())),
+            Rule::string_raw => Self::Raw(Values::String(atom.as_str().to_owned())),
+            //TODO: Fix this
+            Rule::string_construct => Self::Raw(Values::String(atom.as_str().parse().unwrap())),
+            _ => unreachable!(),
         }
     }
 }
 
 #[derive(Debug)]
-struct Expr<T>
-where
-    T: Into<Values> + FromPair,
-    BinOp<T>: ApplyBinOp<T>,
-    UnaryOp<T>: ApplyUnaryOp<T>,
-{
-    atom: Box<Atom<T>>,
-    bin_op_atom: Vec<(BinOp<T>, Atom<T>)>,
+struct Expr {
+    atom: Box<Atom>,
+    bin_op_atom: Vec<(BinOp, Atom)>,
 }
 
-impl<T> Expr<T>
-where
-    T: Into<Values> + FromPair,
-    BinOp<T>: ApplyBinOp<T>,
-    UnaryOp<T>: ApplyUnaryOp<T>,
-{
+impl Expr {
     fn eval(self, mem: &HashMap<String, Values>) -> Values {
         let mut result = self.atom.eval(mem);
         for (bin_op, atom) in self.bin_op_atom {
@@ -913,31 +795,31 @@ where
         let atom = Atom::build(atom);
 
         let bin_op_atom = pairs
-        .array_chunks::<2>()
-        .map(|[bin_op, atom]| {
-            let bin_op = match bin_op.as_rule() {
-                Rule::sum => BinOp::Sum,
-                Rule::sub => BinOp::Sub,
-                Rule::mul => BinOp::Mul,
-                Rule::div => BinOp::Div,
-                Rule::le => BinOp::Le,
-                Rule::lt => BinOp::Lt,
-                Rule::ge => BinOp::Ge,
-                Rule::gt => BinOp::Gt,
-                Rule::ne => BinOp::Ne,
-                Rule::eq => BinOp::Eq,
-                Rule::or => BinOp::Or,
-                Rule::and => BinOp::And,
-                _ => unreachable!()
-            };
-            let atom = Atom::build(atom);
-            (bin_op, atom)
-        })
-        .collect();
+            .array_chunks::<2>()
+            .map(|[bin_op, atom]| {
+                let bin_op = match bin_op.as_rule() {
+                    Rule::sum => BinOp::Sum,
+                    Rule::sub => BinOp::Sub,
+                    Rule::mul => BinOp::Mul,
+                    Rule::div => BinOp::Div,
+                    Rule::le => BinOp::Le,
+                    Rule::lt => BinOp::Lt,
+                    Rule::ge => BinOp::Ge,
+                    Rule::gt => BinOp::Gt,
+                    Rule::ne => BinOp::Ne,
+                    Rule::eq => BinOp::Eq,
+                    Rule::or => BinOp::Or,
+                    Rule::and => BinOp::And,
+                    _ => unreachable!(),
+                };
+                let atom = Atom::build(atom);
+                (bin_op, atom)
+            })
+            .collect();
 
         Self {
             atom: Box::new(atom),
-            bin_op_atom
+            bin_op_atom,
         }
     }
 }
@@ -974,57 +856,10 @@ impl From<bool> for Values {
     }
 }
 
-trait FromPair: Sized {
-    fn get<'a>(val: Pair<'a, Rule>) -> Option<Self>;
-}
-
-impl FromPair for i64 {
-    fn get<'a>(val: Pair<'a, Rule>) -> Option<Self> {
-        match val.as_rule() {
-            Rule::int_val => val.as_str().parse().ok(),
-            _ => None
-        }
-    }
-}
-
-impl FromPair for f64 {
-    fn get<'a>(val: Pair<'a, Rule>) -> Option<Self> {
-        match val.as_rule() {
-            Rule::float_val => val.as_str().parse().ok(),
-            _ => None
-        }
-    }
-}
-
-impl FromPair for bool {
-    fn get<'a>(val: Pair<'a, Rule>) -> Option<Self> {
-        match val.as_rule() {
-            Rule::r#true => val.as_str().parse().ok(),
-            Rule::r#false => val.as_str().parse().ok(),
-            _ => None
-        }
-    }
-}
-
-impl FromPair for String {
-    fn get<'a>(val: Pair<'a, Rule>) -> Option<Self> {
-        match val.as_rule() {
-            Rule::string_raw => Some(val.as_str().to_owned()),
-            //TODO: Fix this
-            Rule::string_construct => val.as_str().parse().ok(),
-            _ => None
-        }
-    }
-}
-
 #[derive(Debug)]
 enum ByteCode {
-    DeclareIntVar(String, Expr<i64>),
-    DeclareFloatVar(String, Expr<f64>),
-    DeclareBoolVar(String, Expr<bool>),
-    DeclareStringVar(String, Expr<String>),
+    DeclareVar(String, Types, Expr),
 }
-
 
 trait CodeGen {
     fn declare_variable<'a>(ident: &'a str, t: Types, expr: Pair<'a, Rule>) -> Self;
@@ -1032,17 +867,27 @@ trait CodeGen {
 
 impl CodeGen for ByteCode {
     fn declare_variable<'a>(ident: &'a str, t: Types, expr: Pair<'a, Rule>) -> Self {
-        match t {
-            Types::Int => Self::DeclareIntVar(ident.to_string(), Expr::build(expr)),
-            Types::Float => Self::DeclareFloatVar(ident.to_string(), Expr::build(expr)),
-            Types::String => Self::DeclareStringVar(ident.to_string(), Expr::build(expr)),
-            Types::Bool => Self::DeclareBoolVar(ident.to_string(), Expr::build(expr)),
-        }
+        Self::DeclareVar(ident.to_string(), t, Expr::build(expr))
     }
 }
 
-
 fn main() {
+    let pratt: PrattParser<Rule> = PrattParser::new()
+        .op(Op::infix(Rule::or, Assoc::Left) | Op::infix(Rule::and, Assoc::Left))
+        .op(Op::infix(Rule::le, Assoc::Left)
+            | Op::infix(Rule::lt, Assoc::Left)
+            | Op::infix(Rule::ge, Assoc::Left)
+            | Op::infix(Rule::gt, Assoc::Left)
+            | Op::infix(Rule::ne, Assoc::Left)
+            | Op::infix(Rule::eq, Assoc::Left))
+        .op(Op::infix(Rule::sum, Assoc::Left) | Op::infix(Rule::sub, Assoc::Left))
+        .op(Op::infix(Rule::mul, Assoc::Left) | Op::infix(Rule::div, Assoc::Left));
+
+    // let expr_type_parser = pratt
+    // .map_primary(|atom| match atom.as_rule() {
+
+    // });
+
     let unparsed_file = std::fs::read_to_string("test1.isi").expect("cannot read file");
 
     let pair = LangParser::parse(Rule::main, &unparsed_file)
@@ -1052,6 +897,6 @@ fn main() {
 
     // println!("{pair:#?}");
 
-    AST::from(pair).validate_generate().unwrap();
+    AST::from(pair).validate_generate(&pratt).unwrap();
     // println!("{}", c_code.0);
 }
