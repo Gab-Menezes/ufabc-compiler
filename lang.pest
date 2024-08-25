@@ -1,0 +1,98 @@
+WHITESPACE = _{ " " | "\t" | "\n" }
+
+endl = _{ ";" }
+
+reserved = _{ 
+    "main" | 
+    "let" | 
+    "read" | 
+    "write" | 
+    "if" | 
+    "else" | 
+    "for" | 
+    "while" | 
+    "int" | 
+    "float" | 
+    "string" | 
+    "bool" | 
+    "true" | 
+    "false"
+}
+
+main = { 
+    SOI ~ (
+        "main" ~ "{" ~ 
+            var_dec* ~ 
+            cmd ~ 
+        "}"
+    ) 
+    ~ EOI 
+}
+
+var_dec = ${ 
+    "let" ~ WHITESPACE+ ~ ident ~ 
+    WHITESPACE* ~ ":" ~ WHITESPACE* ~ types ~ 
+    WHITESPACE* ~ "=" ~ WHITESPACE* ~ expr ~ 
+    WHITESPACE* ~ endl ~ WHITESPACE*
+}
+
+cmd = { (cmd_op ~ endl | cmd_st)* }
+    cmd_op = _{ cmd_read | cmd_write | cmd_assign | cmd_change_assign }
+        cmd_read    = { "read" ~ "(" ~ ident ~ ")" }
+        cmd_write   = { "write" ~ "(" ~ (string_val | int_val | bool_val | float_val | ident)  ~ ")" }
+        cmd_assign  = { ident ~ "=" ~ expr }
+        cmd_change_assign = { ident ~ (sum | sub | mul | div) ~ "=" ~ expr}
+
+    cmd_st = _{ cmd_if | cmd_for | cmd_while }
+        cmd_if = { 
+            "if" ~ "(" ~ expr ~ ")" ~ 
+            "{" ~ cmd ~ "}" ~
+            ("else" ~ "{" ~ cmd ~ "}")?
+        }
+        cmd_for = { 
+            "for" ~ "(" ~ expr ~ ";" ~ cmd_change_assign ~ ")" ~ 
+            "{" ~ cmd ~ "}"
+        }
+        cmd_while = { 
+            "while" ~ "(" ~ expr ~ ")" ~ 
+            "{" ~ cmd ~ "}"
+        }
+
+atom = _{ expr_una | bool_val | float_val | int_val | string_val | ident | "(" ~ WHITESPACE* ~ expr ~ WHITESPACE* ~ ")" }
+expr = ${ atom ~ WHITESPACE* ~ (WHITESPACE* ~ op_bin ~ WHITESPACE* ~ atom ~ WHITESPACE*)* }
+op_bin = _{ sum | sub | mul | div | le | lt | ge | gt | ne | eq | or | and }
+    sum = { "+" }
+    sub = { "-" }
+    mul = { "*" }
+    div = { "/" }
+    le  = { "<=" }
+    lt  = { "<"  }
+    ge  = { ">=" }
+    gt  = { ">"  }
+    ne  = { "!=" }
+    eq  = { "==" }
+    or  = { "||" }
+    and = { "&&" }
+
+
+expr_una = { op_una ~ (bool_val | ident | "(" ~ WHITESPACE* ~ expr ~ WHITESPACE* ~ ")") }
+op_una = _{ negation | negative }
+    negation = { "!" }
+    negative = { "-" }
+
+types = _{ int | float | string | bool }
+    int    = { "int" }
+    float  = { "float" }
+    string = { "string" }
+    bool   = { "bool" }
+
+ident    = @{ !reserved ~ ASCII_ALPHA ~ ASCII_ALPHANUMERIC* }
+bool_val = _{ true | false }
+    true  = { "true" }
+    false = { "false" }
+int_val    = @{ negative? ~ ASCII_DIGIT+ }
+float_val  = @{ negative? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
+string_val = _{ string_raw | string_construct }
+    string_raw = @{ "\"" ~ WHITESPACE* ~ ASCII_ALPHANUMERIC* ~ WHITESPACE* ~ "\"" }
+    // TODO: Fix negative values
+    string_construct = ${ "string" ~ WHITESPACE* ~ "(" ~ WHITESPACE* ~ int_val ~ WHITESPACE*~ ")" }
