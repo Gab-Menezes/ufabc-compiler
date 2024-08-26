@@ -1,0 +1,6 @@
+main {
+    let a: int = 1;
+    let b: float = 1.0;
+    let c: bool = true;
+    let d: string = "abc";
+}

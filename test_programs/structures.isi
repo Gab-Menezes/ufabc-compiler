@@ -1,0 +1,18 @@
+main {
+    let a: int = 1;
+    let b: float = 1.0;
+    let c: bool = true;
+    let d: string = "abc";
+
+    if (c) {
+        for (a < 10; a += 2) {
+            write(d);
+        }
+    }
+
+    if (d == "abc") {
+        while (b <= 10.0) {
+            read(a);
+        }
+    }
+}

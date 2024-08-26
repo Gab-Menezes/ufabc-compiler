@@ -1,0 +1,23 @@
+main {
+    let i: int = 0;
+    let count: int = 0;
+
+    let temp: int = 0;
+    let prev: int = 0;
+    let current: int = 1;
+
+    write("How many fibonacci numbers to generated");
+    read(count);
+
+    write("");
+
+    write(prev);
+    write(current);
+    for (i < count; i += 1) {
+        temp = current;
+        current += prev;
+        prev = temp;
+
+        write(current);
+    }
+}
