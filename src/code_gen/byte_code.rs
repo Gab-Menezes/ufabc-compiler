@@ -67,11 +67,7 @@ impl<'a> CodeGen<'a> for ByteCode<'a> {
         _: &PrattParser<Rule>,
         _: u32,
     ) -> Self {
-        Self::CmdIf(
-            expr,
-            Box::new(true_branch),
-            false_branch.map(Box::new),
-        )
+        Self::CmdIf(expr, Box::new(true_branch), false_branch.map(Box::new))
     }
 
     fn cmd_for(
@@ -227,7 +223,9 @@ impl<'a> ByteCode<'a> {
                 };
                 if cond {
                     true_branch.eval(pratt, mem);
-                } else if let Some(false_branch) = false_branch { false_branch.eval(pratt, mem) }
+                } else if let Some(false_branch) = false_branch {
+                    false_branch.eval(pratt, mem)
+                }
             }
             ByteCode::CmdFor(expr, change_assing, block) => loop {
                 let cond = eval_expr(expr.clone(), pratt, mem);

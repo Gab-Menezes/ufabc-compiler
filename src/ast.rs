@@ -87,7 +87,9 @@ impl<'a> AST<'a> {
                     let generated = AST::from(p)
                         .inner_validate_generate::<C>(ident_types, pratt, 0)?
                         .1;
-                    if let Some(generated) = generated { acc.push(generated) }
+                    if let Some(generated) = generated {
+                        acc.push(generated)
+                    }
                 }
                 let c = Some(C::main_block(acc));
                 Ok((None, c))
@@ -98,7 +100,9 @@ impl<'a> AST<'a> {
                     let generated = AST::from(p)
                         .inner_validate_generate::<C>(ident_types, pratt, depth - 1)?
                         .1;
-                    if let Some(generated) = generated { acc.push(generated) }
+                    if let Some(generated) = generated {
+                        acc.push(generated)
+                    }
                 }
                 let c = Some(C::code_block(acc));
                 Ok((None, c))

@@ -9,11 +9,7 @@ use pest::{
     Parser,
 };
 
-use crate::{
-    ast::AST,
-    code_gen::cpp::Cpp,
-    lang::LangParser,
-};
+use crate::{ast::AST, code_gen::cpp::Cpp, lang::LangParser};
 
 fn main() {
     let pratt: PrattParser<Rule> = PrattParser::new()
