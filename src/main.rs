@@ -40,8 +40,18 @@ impl Types {
                     | Rule::ne
                     | Rule::eq
             ),
-            // TODO: Add comparisons
-            Types::String => matches!(op, Rule::cmd_write | Rule::cmd_read),
+            Types::String => matches!(
+                op,
+                Rule::cmd_write
+                    | Rule::cmd_read
+                    | Rule::sum
+                    | Rule::le
+                    | Rule::lt
+                    | Rule::ge
+                    | Rule::gt
+                    | Rule::ne
+                    | Rule::eq
+            ),
             Types::Bool => matches!(
                 op,
                 Rule::cmd_write | Rule::negation | Rule::ne | Rule::eq | Rule::or | Rule::and
@@ -112,9 +122,9 @@ impl<'a> AST<'a> {
     fn validate_generate<C: CodeGen<'a>>(
         self,
         pratt: &PrattParser<Rule>,
-    ) -> Result<(Option<Types>, Option<C>), ValidationError<'a>> {
+    ) -> Result<C, ValidationError<'a>> {
         let mut ident_types = HashMap::new();
-        self.inner_validate_generate::<C>(&mut ident_types, pratt)
+        self.inner_validate_generate::<C>(&mut ident_types, pratt).map(|(_, c)| c.unwrap())
     }
 
     fn inner_validate_generate<C: CodeGen<'a>>(
@@ -136,8 +146,7 @@ impl<'a> AST<'a> {
             | Rule::bool_val
             | Rule::string_val
             | Rule::reserved
-            | Rule::op_una
-            | Rule::inner_string_raw => unreachable!(),
+            | Rule::op_una => unreachable!(),
 
             Rule::sum
             | Rule::sub
@@ -164,13 +173,26 @@ impl<'a> AST<'a> {
             Rule::int_val => Ok((Some(Types::Int), None)),
             Rule::float_val => Ok((Some(Types::Float), None)),
             Rule::string_raw => Ok((Some(Types::String), None)),
-            Rule::string_construct => Ok((Some(Types::String), None)),
 
             Rule::ident => match ident_types.get(self.0.as_str()) {
                 Some((t, _)) => Ok((Some(*t), None)),
                 None => Err(ValidationError::VariableNotDeclared(stmt_span)),
             },
-            Rule::main | Rule::cmd => {
+            Rule::main => {
+                let mut acc = Vec::new();
+                for p in self.0.into_inner() {
+                    let generated = AST::from(p)
+                        .inner_validate_generate::<C>(ident_types, pratt)?
+                        .1;
+                    match generated {
+                        Some(generated) => acc.push(generated),
+                        None => {}
+                    }
+                }
+                let c = Some(C::main_block(acc));
+                Ok((None, c))
+            }
+            Rule::cmd => {
                 let mut acc = Vec::new();
                 for p in self.0.into_inner() {
                     let generated = AST::from(p)
@@ -221,7 +243,7 @@ impl<'a> AST<'a> {
                         )),
                         Entry::Vacant(e) => {
                             let compiled_expr =
-                                Some(C::declare_var(ident.as_str(), lhs_type, expr));
+                                Some(C::declare_var(ident.as_str(), lhs_type, expr, pratt));
                             e.insert((lhs_type, stmt_span));
                             Ok((None, compiled_expr))
                         }
@@ -247,7 +269,7 @@ impl<'a> AST<'a> {
                     .ok_or(ValidationError::MissingType(ident_span))?;
 
                 if atom_type.can_do_op(Rule::cmd_read) {
-                    let compiled_expr = Some(C::cmd_read(ident.as_str()));
+                    let compiled_expr = Some(C::cmd_read(ident.as_str(), atom_type));
                     Ok((None, compiled_expr))
                 } else {
                     Err(ValidationError::InvalidOperation(InvalidOperationError {
@@ -280,7 +302,7 @@ impl<'a> AST<'a> {
                     .ok_or(ValidationError::MissingType(val_span))?;
 
                 if val_type.can_do_op(Rule::cmd_write) {
-                    let compiled_expr = Some(C::cmd_write(val));
+                    let compiled_expr = Some(C::cmd_write(val, val_type));
                     Ok((None, compiled_expr))
                 } else {
                     Err(ValidationError::InvalidOperation(InvalidOperationError {
@@ -310,7 +332,8 @@ impl<'a> AST<'a> {
                     .ok_or(ValidationError::MissingType(expr_span))?;
 
                 if ident_type == expr_type {
-                    let compiled_expr = Some(C::assign_var(ident.as_str(), ident_type, expr));
+                    let compiled_expr =
+                        Some(C::assign_var(ident.as_str(), ident_type, expr, pratt));
                     Ok((None, compiled_expr))
                 } else {
                     Err(ValidationError::TypeMismatch(TypeMismatchError {
@@ -363,8 +386,13 @@ impl<'a> AST<'a> {
                         provided: expr_type,
                     }))
                 } else {
-                    let compiled_expr =
-                        Some(C::change_assign_var(ident.as_str(), ident_type, op, expr));
+                    let compiled_expr = Some(C::change_assign_var(
+                        ident.as_str(),
+                        ident_type,
+                        op,
+                        expr,
+                        pratt,
+                    ));
                     Ok((None, compiled_expr))
                 }
             }
@@ -417,11 +445,13 @@ impl<'a> AST<'a> {
                             expr,
                             cmd_true_code_gen.unwrap(),
                             cmd_false_code_gen,
+                            pratt,
                         ));
                         Ok((None, compiled_expr))
                     }
                     None => {
-                        let compiled_expr = Some(C::cmd_if(expr, cmd_true_code_gen.unwrap(), None));
+                        let compiled_expr =
+                            Some(C::cmd_if(expr, cmd_true_code_gen.unwrap(), None, pratt));
                         Ok((None, compiled_expr))
                     }
                 }
@@ -478,6 +508,7 @@ impl<'a> AST<'a> {
                     expr,
                     cmd_change_assign_code_gen.unwrap(),
                     cmd_code_gen.unwrap(),
+                    pratt,
                 ));
                 Ok((None, compiled_expr))
             }
@@ -510,7 +541,7 @@ impl<'a> AST<'a> {
                 debug_assert!(matches!(cmd_type, None), "{cmd_span:?}");
                 debug_assert!(cmd_code_gen.is_some(), "{cmd_span:?}");
 
-                let compiled_expr = Some(C::cmd_while(expr, cmd_code_gen.unwrap()));
+                let compiled_expr = Some(C::cmd_while(expr, cmd_code_gen.unwrap(), pratt));
                 Ok((None, compiled_expr))
             }
             Rule::expr => {
@@ -522,7 +553,6 @@ impl<'a> AST<'a> {
                         | Rule::int_val
                         | Rule::float_val
                         | Rule::string_raw
-                        | Rule::string_construct
                         | Rule::expr
                         | Rule::ident => {
                             AST::from(atom).inner_validate_generate::<C>(ident_types, pratt)
@@ -574,8 +604,48 @@ enum Values {
     Bool(bool),
 }
 
+trait CodeGen<'a>: Sized {
+    fn main_block(acc: Vec<Self>) -> Self;
+    fn code_block(acc: Vec<Self>) -> Self;
+    fn declare_var(
+        ident: &'a str,
+        t: Types,
+        expr: Pair<'a, Rule>,
+        pratt: &PrattParser<Rule>,
+    ) -> Self;
+    fn assign_var(
+        ident: &'a str,
+        t: Types,
+        expr: Pair<'a, Rule>,
+        pratt: &PrattParser<Rule>,
+    ) -> Self;
+    fn change_assign_var(
+        ident: &'a str,
+        t: Types,
+        op: Pair<'a, Rule>,
+        expr: Pair<'a, Rule>,
+        pratt: &PrattParser<Rule>,
+    ) -> Self;
+    fn cmd_if(
+        expr: Pair<'a, Rule>,
+        true_branch: Self,
+        false_branch: Option<Self>,
+        pratt: &PrattParser<Rule>,
+    ) -> Self;
+    fn cmd_for(
+        expr: Pair<'a, Rule>,
+        change_assign: Self,
+        block: Self,
+        pratt: &PrattParser<Rule>,
+    ) -> Self;
+    fn cmd_while(expr: Pair<'a, Rule>, block: Self, pratt: &PrattParser<Rule>) -> Self;
+    fn cmd_write(content: Pair<'a, Rule>, t: Types) -> Self;
+    fn cmd_read(ident: &'a str, t: Types) -> Self;
+}
+
 #[derive(Debug, Clone)]
 enum ByteCode<'a> {
+    MainBlock(Vec<ByteCode<'a>>),
     CodeBlock(Vec<ByteCode<'a>>),
     DeclareVar(String, Pair<'a, Rule>),
     AssignVar(String, Pair<'a, Rule>),
@@ -587,33 +657,20 @@ enum ByteCode<'a> {
     CmdRead(String),
 }
 
-trait CodeGen<'a>: Sized {
-    fn code_block(acc: Vec<Self>) -> Self;
-    fn declare_var(ident: &'a str, t: Types, expr: Pair<'a, Rule>) -> Self;
-    fn assign_var(ident: &'a str, t: Types, expr: Pair<'a, Rule>) -> Self;
-    fn change_assign_var(
-        ident: &'a str,
-        t: Types,
-        op: Pair<'a, Rule>,
-        expr: Pair<'a, Rule>,
-    ) -> Self;
-    fn cmd_if(expr: Pair<'a, Rule>, true_branch: Self, false_branch: Option<Self>) -> Self;
-    fn cmd_for(expr: Pair<'a, Rule>, change_assign: Self, block: Self) -> Self;
-    fn cmd_while(expr: Pair<'a, Rule>, block: Self) -> Self;
-    fn cmd_write(cotent: Pair<'a, Rule>) -> Self;
-    fn cmd_read(ident: &'a str) -> Self;
-}
-
 impl<'a> CodeGen<'a> for ByteCode<'a> {
+    fn main_block(acc: Vec<Self>) -> Self {
+        Self::MainBlock(acc)
+    }
+
     fn code_block(acc: Vec<Self>) -> Self {
         Self::CodeBlock(acc)
     }
 
-    fn declare_var(ident: &'a str, _: Types, expr: Pair<'a, Rule>) -> Self {
+    fn declare_var(ident: &'a str, _: Types, expr: Pair<'a, Rule>, _: &PrattParser<Rule>) -> Self {
         Self::DeclareVar(ident.to_string(), expr)
     }
 
-    fn assign_var(ident: &'a str, _: Types, expr: Pair<'a, Rule>) -> Self {
+    fn assign_var(ident: &'a str, _: Types, expr: Pair<'a, Rule>, _: &PrattParser<Rule>) -> Self {
         Self::AssignVar(ident.to_string(), expr)
     }
 
@@ -622,11 +679,17 @@ impl<'a> CodeGen<'a> for ByteCode<'a> {
         _: Types,
         op: Pair<'a, Rule>,
         expr: Pair<'a, Rule>,
+        _: &PrattParser<Rule>,
     ) -> Self {
         Self::ChangeAssignVar(ident.to_string(), op, expr)
     }
 
-    fn cmd_if(expr: Pair<'a, Rule>, true_branch: Self, false_branch: Option<Self>) -> Self {
+    fn cmd_if(
+        expr: Pair<'a, Rule>,
+        true_branch: Self,
+        false_branch: Option<Self>,
+        _: &PrattParser<Rule>,
+    ) -> Self {
         Self::CmdIf(
             expr,
             Box::new(true_branch),
@@ -634,19 +697,24 @@ impl<'a> CodeGen<'a> for ByteCode<'a> {
         )
     }
 
-    fn cmd_for(expr: Pair<'a, Rule>, change_assign: Self, block: Self) -> Self {
+    fn cmd_for(
+        expr: Pair<'a, Rule>,
+        change_assign: Self,
+        block: Self,
+        _: &PrattParser<Rule>,
+    ) -> Self {
         Self::CmdFor(expr, Box::new(change_assign), Box::new(block))
     }
 
-    fn cmd_while(expr: Pair<'a, Rule>, block: Self) -> Self {
+    fn cmd_while(expr: Pair<'a, Rule>, block: Self, _: &PrattParser<Rule>) -> Self {
         Self::CmdWhile(expr, Box::new(block))
     }
 
-    fn cmd_write(cotent: Pair<'a, Rule>) -> Self {
-        Self::CmdWrite(cotent)
+    fn cmd_write(content: Pair<'a, Rule>, _: Types) -> Self {
+        Self::CmdWrite(content)
     }
 
-    fn cmd_read(ident: &'a str) -> Self {
+    fn cmd_read(ident: &'a str, _: Types) -> Self {
         Self::CmdRead(ident.to_owned())
     }
 }
@@ -686,7 +754,7 @@ impl<'a> ByteCode<'a> {
                     _ => unreachable!(),
                 },
                 (Values::String(lhs), Values::String(rhs)) => match op.as_rule() {
-                    Rule::sum => unreachable!(),
+                    Rule::sum => Values::String(format!("{lhs}{rhs}")),
                     Rule::sub => unreachable!(),
                     Rule::mul => unreachable!(),
                     Rule::div => unreachable!(),
@@ -734,8 +802,6 @@ impl<'a> ByteCode<'a> {
                     Rule::r#true => Values::Bool(atom.as_str().parse().unwrap()),
                     Rule::r#false => Values::Bool(atom.as_str().parse().unwrap()),
                     Rule::string_raw => Values::String(atom.as_str().to_owned()),
-                    //TODO: Fix this
-                    Rule::string_construct => Values::String(atom.as_str().parse().unwrap()),
                     _ => unreachable!(),
                 })
                 .map_prefix(|op, val| match val {
@@ -762,10 +828,10 @@ impl<'a> ByteCode<'a> {
 
         match self {
             ByteCode::DeclareVar(ident, expr) | ByteCode::AssignVar(ident, expr) => {
-                let v = eval_expr(expr, pratt, mem);;
+                let v = eval_expr(expr, pratt, mem);
                 mem.insert(ident, v);
             }
-            ByteCode::CodeBlock(bcs) => {
+            ByteCode::CodeBlock(bcs) | ByteCode::MainBlock(bcs) => {
                 for bc in bcs {
                     bc.eval(pratt, mem);
                 }
@@ -859,6 +925,171 @@ impl<'a> ByteCode<'a> {
     }
 }
 
+struct CppCode(String);
+
+impl CppCode {
+    fn gen_expr<'a>(expr: Pair<'a, Rule>, pratt: &PrattParser<Rule>) -> String {
+        let pairs = expr.into_inner();
+        pratt
+            .map_primary(|atom| match atom.as_rule() {
+                Rule::ident | Rule::int_val | Rule::float_val | Rule::r#true | Rule::r#false => {
+                    format!("({})", atom.as_str())
+                }
+                Rule::expr => format!("({})", Self::gen_expr(atom, pratt)),
+                Rule::string_raw => format!("std::string(\"{}\")", atom.as_str()),
+                _ => unreachable!(),
+            })
+            .map_prefix(|op, val| match op.as_rule() {
+                Rule::negative => format!("(-{val})"),
+                Rule::negation => format!("(!{val})"),
+                _ => unreachable!(),
+            })
+            .map_infix(|lhs, op, rhs| match op.as_rule() {
+                Rule::sum => format!("({lhs} + {rhs})"),
+                Rule::sub => format!("({lhs} - {rhs})"),
+                Rule::mul => format!("({lhs} * {rhs})"),
+                Rule::div => format!("({lhs} / {rhs})"),
+                Rule::le => format!("({lhs} <= {rhs})"),
+                Rule::lt => format!("({lhs} < {rhs})"),
+                Rule::ge => format!("({lhs} >= {rhs})"),
+                Rule::gt => format!("({lhs} > {rhs})"),
+                Rule::ne => format!("({lhs} != {rhs})"),
+                Rule::eq => format!("({lhs} == {rhs})"),
+                Rule::or => format!("({lhs} || {rhs})"),
+                Rule::and => format!("({lhs} && {rhs})"),
+                _ => unreachable!(),
+            })
+            .parse(pairs)
+    }
+}
+
+impl<'a> CodeGen<'a> for CppCode {
+    fn main_block(acc: Vec<Self>) -> Self {
+        let mut output = String::from(
+            r#"#include <iostream>
+#include <string>
+
+int main() {
+"#,
+        );
+
+        for code in acc {
+            output.push_str(&code.0);
+            output.push('\n');
+        }
+
+        output.push_str("\treturn 0;\n");
+        output.push('}');
+
+        Self(output)
+    }
+
+    fn code_block(acc: Vec<Self>) -> Self {
+        let mut output = String::new();
+        for code in acc {
+            output.push_str(&code.0);
+            output.push('\n');
+        }
+        Self(output)
+    }
+
+    fn declare_var(
+        ident: &'a str,
+        t: Types,
+        expr: Pair<'a, Rule>,
+        pratt: &PrattParser<Rule>,
+    ) -> Self {
+        let t = match t {
+            Types::Int => "long long int",
+            Types::Float => "double",
+            Types::String => "std::string",
+            Types::Bool => "bool",
+        };
+        Self(format!("{t} {ident} = {};", Self::gen_expr(expr, pratt)))
+    }
+
+    fn assign_var(
+        ident: &'a str,
+        _: Types,
+        expr: Pair<'a, Rule>,
+        pratt: &PrattParser<Rule>,
+    ) -> Self {
+        Self(format!("{ident} = {};", Self::gen_expr(expr, pratt)))
+    }
+
+    fn change_assign_var(
+        ident: &'a str,
+        _: Types,
+        op: Pair<'a, Rule>,
+        expr: Pair<'a, Rule>,
+        pratt: &PrattParser<Rule>,
+    ) -> Self {
+        let op = match op.as_rule() {
+            Rule::sum => "+",
+            Rule::sub => "-",
+            Rule::mul => "*",
+            Rule::div => "/",
+            _ => unreachable!(),
+        };
+
+        Self(format!("{ident} {op}= {};", Self::gen_expr(expr, pratt)))
+    }
+
+    fn cmd_if(
+        expr: Pair<'a, Rule>,
+        true_branch: Self,
+        false_branch: Option<Self>,
+        pratt: &PrattParser<Rule>,
+    ) -> Self {
+        let output = format!(
+            "if ({}) {{\n{}\n}}",
+            Self::gen_expr(expr, pratt),
+            true_branch.0
+        );
+        match false_branch {
+            Some(false_branch) => Self(format!("{output} else {{\n{}\n}}", false_branch.0)),
+            None => Self(output),
+        }
+    }
+
+    fn cmd_for(
+        expr: Pair<'a, Rule>,
+        mut change_assign: Self,
+        block: Self,
+        pratt: &PrattParser<Rule>,
+    ) -> Self {
+        change_assign.0.pop();
+        Self(format!(
+            "for (; {}; {}) {{\n{}\n}}",
+            Self::gen_expr(expr, pratt),
+            change_assign.0,
+            block.0
+        ))
+    }
+
+    fn cmd_while(expr: Pair<'a, Rule>, block: Self, pratt: &PrattParser<Rule>) -> Self {
+        Self(format!(
+            "while ({}) {{\n{}\n}}",
+            Self::gen_expr(expr, pratt),
+            block.0
+        ))
+    }
+
+    fn cmd_write(content: Pair<'a, Rule>, _: Types) -> Self {
+        match content.as_rule() {
+            Rule::string_raw => Self(format!("std::cout << \"{}\" << '\\n';", content.as_str())),
+            Rule::int_val | Rule::float_val | Rule::r#true | Rule::r#false | Rule::ident => {
+                Self(format!("std::cout << {} << '\\n';", content.as_str()))
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn cmd_read(ident: &'a str, _: Types) -> Self {
+        Self(format!("std::cin >> {ident};"))
+    }
+}
+
 fn main() {
     let pratt: PrattParser<Rule> = PrattParser::new()
         .op(Op::infix(Rule::or, Assoc::Left) | Op::infix(Rule::and, Assoc::Left))
@@ -875,15 +1106,15 @@ fn main() {
     let unparsed_file = std::fs::read_to_string("test1.isi").expect("cannot read file");
 
     let pair = LangParser::parse(Rule::main, &unparsed_file)
-        .expect("unsuccessful parse") // unwrap the parse result
+        .expect("unsuccessful parse")
         .next()
-        .unwrap(); // get and unwrap the `file` rule; never fails
-
-    let (_, bc) = AST::from(pair)
-        .validate_generate::<ByteCode>(&pratt)
         .unwrap();
-    let bc = bc.unwrap();
 
-    let mut mem = HashMap::new();
-    bc.eval(&pratt, &mut mem)
+    let gen = AST::from(pair)
+        .validate_generate::<CppCode>(&pratt)
+        .unwrap();
+
+    // let mut mem = HashMap::new();
+    // gen.eval(&pratt, &mut mem);
+    println!("{}", gen.0);
 }

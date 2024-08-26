@@ -39,7 +39,7 @@ var_dec = ${
 cmd = { (cmd_op ~ endl | cmd_st)* }
     cmd_op = _{ cmd_read | cmd_write | cmd_assign | cmd_change_assign }
         cmd_read    = { "read" ~ "(" ~ ident ~ ")" }
-        cmd_write   = ${ "write" ~ WHITESPACE* ~ "(" ~ WHITESPACE* ~ (inner_string_raw | float_val | int_val | bool_val | ident) ~ WHITESPACE*  ~ ")" }
+        cmd_write   = ${ "write" ~ WHITESPACE* ~ "(" ~ WHITESPACE* ~ (string_val | float_val | int_val | bool_val | ident) ~ WHITESPACE*  ~ ")" }
         cmd_assign  = { ident ~ "=" ~ expr }
         cmd_change_assign = { ident ~ (sum | sub | mul | div) ~ "=" ~ expr}
 
@@ -89,8 +89,5 @@ bool_val = _{ true | false }
     false = { "false" }
 int_val    = @{ negative? ~ ASCII_DIGIT+ }
 float_val  = @{ negative? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
-string_val = _{ inner_string_raw | string_construct }
-    inner_string_raw = _{ "\"" ~ string_raw ~ "\"" }
+string_val = _{ "\"" ~ string_raw ~ "\"" }
     string_raw = { (ASCII_ALPHANUMERIC | WHITESPACE)* }
-    // TODO: Fix negative values
-    string_construct = ${ "string" ~ WHITESPACE* ~ "(" ~ WHITESPACE* ~ int_val ~ WHITESPACE*~ ")" }
