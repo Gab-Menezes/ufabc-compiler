@@ -15,7 +15,7 @@ impl Java {
         let pairs = expr.into_inner();
         pratt
             .map_primary(|atom| match atom.as_rule() {
-                Rule::ident | Rule::int_val | Rule::float_val | Rule::r#true | Rule::r#false  => {
+                Rule::ident | Rule::int_val | Rule::float_val | Rule::r#true | Rule::r#false => {
                     format!("({})", atom.as_str())
                 }
                 Rule::expr => format!("({})", Self::gen_expr(atom, pratt)),

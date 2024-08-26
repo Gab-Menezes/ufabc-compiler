@@ -9,7 +9,7 @@ use pest::{
     Parser,
 };
 
-use crate::{ast::AST, code_gen::{cpp::Cpp, java::Java}, lang::LangParser};
+use crate::{ast::AST, code_gen::java::Java, lang::LangParser};
 
 fn main() {
     let pratt: PrattParser<Rule> = PrattParser::new()
@@ -38,7 +38,7 @@ fn main() {
             // let mut mem = HashMap::new();
             // gen.eval(&pratt, &mut mem)
             println!("{}", gen.into_inner());
-        },
+        }
         Err(err) => println!("{err}"),
     }
 }
