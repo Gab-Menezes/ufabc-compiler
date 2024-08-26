@@ -13,14 +13,14 @@ pub trait CodeGen<'a>: Sized {
         t: Types,
         expr: Pair<'a, Rule>,
         pratt: &PrattParser<Rule>,
-        depth: u32
+        depth: u32,
     ) -> Self;
     fn assign_var(
         ident: &'a str,
         t: Types,
         expr: Pair<'a, Rule>,
         pratt: &PrattParser<Rule>,
-        depth: u32
+        depth: u32,
     ) -> Self;
     fn change_assign_var(
         ident: &'a str,
@@ -28,21 +28,21 @@ pub trait CodeGen<'a>: Sized {
         op: Pair<'a, Rule>,
         expr: Pair<'a, Rule>,
         pratt: &PrattParser<Rule>,
-        depth: u32
+        depth: u32,
     ) -> Self;
     fn cmd_if(
         expr: Pair<'a, Rule>,
         true_branch: Self,
         false_branch: Option<Self>,
         pratt: &PrattParser<Rule>,
-        depth: u32
+        depth: u32,
     ) -> Self;
     fn cmd_for(
         expr: Pair<'a, Rule>,
         change_assign: Self,
         block: Self,
         pratt: &PrattParser<Rule>,
-        depth: u32
+        depth: u32,
     ) -> Self;
     fn cmd_while(expr: Pair<'a, Rule>, block: Self, pratt: &PrattParser<Rule>, depth: u32) -> Self;
     fn cmd_write(content: Pair<'a, Rule>, t: Types, depth: u32) -> Self;

@@ -29,11 +29,23 @@ impl<'a> CodeGen<'a> for ByteCode<'a> {
         Self::CodeBlock(acc)
     }
 
-    fn declare_var(ident: &'a str, _: Types, expr: Pair<'a, Rule>, _: &PrattParser<Rule>, _: u32) -> Self {
+    fn declare_var(
+        ident: &'a str,
+        _: Types,
+        expr: Pair<'a, Rule>,
+        _: &PrattParser<Rule>,
+        _: u32,
+    ) -> Self {
         Self::DeclareVar(ident.to_string(), expr)
     }
 
-    fn assign_var(ident: &'a str, _: Types, expr: Pair<'a, Rule>, _: &PrattParser<Rule>, _: u32) -> Self {
+    fn assign_var(
+        ident: &'a str,
+        _: Types,
+        expr: Pair<'a, Rule>,
+        _: &PrattParser<Rule>,
+        _: u32,
+    ) -> Self {
         Self::AssignVar(ident.to_string(), expr)
     }
 
@@ -43,7 +55,7 @@ impl<'a> CodeGen<'a> for ByteCode<'a> {
         op: Pair<'a, Rule>,
         expr: Pair<'a, Rule>,
         _: &PrattParser<Rule>,
-        _: u32
+        _: u32,
     ) -> Self {
         Self::ChangeAssignVar(ident.to_string(), op, expr)
     }
@@ -53,7 +65,7 @@ impl<'a> CodeGen<'a> for ByteCode<'a> {
         true_branch: Self,
         false_branch: Option<Self>,
         _: &PrattParser<Rule>,
-        _: u32
+        _: u32,
     ) -> Self {
         Self::CmdIf(
             expr,
@@ -67,7 +79,7 @@ impl<'a> CodeGen<'a> for ByteCode<'a> {
         change_assign: Self,
         block: Self,
         _: &PrattParser<Rule>,
-        _: u32
+        _: u32,
     ) -> Self {
         Self::CmdFor(expr, Box::new(change_assign), Box::new(block))
     }

@@ -1,7 +1,7 @@
-pub mod errors;
-pub mod lang;
 pub mod ast;
 pub mod code_gen;
+pub mod errors;
+pub mod lang;
 
 use lang::Rule;
 use pest::{
@@ -9,7 +9,11 @@ use pest::{
     Parser,
 };
 
-use crate::{ast::AST, code_gen::{byte_code::ByteCode, cpp::Cpp}, lang::LangParser};
+use crate::{
+    ast::AST,
+    code_gen::{byte_code::ByteCode, cpp::Cpp},
+    lang::LangParser,
+};
 
 fn main() {
     let pratt: PrattParser<Rule> = PrattParser::new()
@@ -31,9 +35,7 @@ fn main() {
         .next()
         .unwrap();
 
-    let gen = AST::from(pair)
-        .validate_generate::<Cpp>(&pratt)
-        .unwrap();
+    let gen = AST::from(pair).validate_generate::<Cpp>(&pratt).unwrap();
 
     // let mut mem = HashMap::new();
     // gen.eval(&pratt, &mut mem);

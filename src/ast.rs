@@ -2,7 +2,13 @@ use std::collections::{hash_map::Entry, HashMap};
 
 use pest::{iterators::Pair, pratt_parser::PrattParser, Span};
 
-use crate::{code_gen::CodeGen, errors::{InvalidOperationError, TypeMismatchError, ValidationError, VariableAlreadyDeclaredError}, lang::{Rule, Types}};
+use crate::{
+    code_gen::CodeGen,
+    errors::{
+        InvalidOperationError, TypeMismatchError, ValidationError, VariableAlreadyDeclaredError,
+    },
+    lang::{Rule, Types},
+};
 
 pub struct AST<'a>(Pair<'a, Rule>);
 
@@ -18,14 +24,15 @@ impl<'a> AST<'a> {
         pratt: &PrattParser<Rule>,
     ) -> Result<C, ValidationError<'a>> {
         let mut ident_types = HashMap::new();
-        self.inner_validate_generate::<C>(&mut ident_types, pratt, 0).map(|(_, c)| c.unwrap())
+        self.inner_validate_generate::<C>(&mut ident_types, pratt, 0)
+            .map(|(_, c)| c.unwrap())
     }
 
     fn inner_validate_generate<C: CodeGen<'a>>(
         self,
         ident_types: &mut HashMap<&'a str, (Types, Span<'a>)>,
         pratt: &PrattParser<Rule>,
-        mut depth: u32
+        mut depth: u32,
     ) -> Result<(Option<Types>, Option<C>), ValidationError<'a>> {
         depth += 1;
         let stmt_span = self.0.as_span();
@@ -228,8 +235,13 @@ impl<'a> AST<'a> {
                     .ok_or(ValidationError::MissingType(expr_span))?;
 
                 if ident_type == expr_type {
-                    let compiled_expr =
-                        Some(C::assign_var(ident.as_str(), ident_type, expr, pratt, depth));
+                    let compiled_expr = Some(C::assign_var(
+                        ident.as_str(),
+                        ident_type,
+                        expr,
+                        pratt,
+                        depth,
+                    ));
                     Ok((None, compiled_expr))
                 } else {
                     Err(ValidationError::TypeMismatch(TypeMismatchError {
@@ -288,7 +300,7 @@ impl<'a> AST<'a> {
                         op,
                         expr,
                         pratt,
-                        depth
+                        depth,
                     ));
                     Ok((None, compiled_expr))
                 }
@@ -343,13 +355,18 @@ impl<'a> AST<'a> {
                             cmd_true_code_gen.unwrap(),
                             cmd_false_code_gen,
                             pratt,
-                            depth
+                            depth,
                         ));
                         Ok((None, compiled_expr))
                     }
                     None => {
-                        let compiled_expr =
-                            Some(C::cmd_if(expr, cmd_true_code_gen.unwrap(), None, pratt, depth));
+                        let compiled_expr = Some(C::cmd_if(
+                            expr,
+                            cmd_true_code_gen.unwrap(),
+                            None,
+                            pratt,
+                            depth,
+                        ));
                         Ok((None, compiled_expr))
                     }
                 }
@@ -381,9 +398,10 @@ impl<'a> AST<'a> {
                     matches!(cmd_change_assign_rule, Rule::cmd_change_assign),
                     "{cmd_change_assign_span:?}"
                 );
-                let (cmd_change_assign_type, cmd_change_assign_code_gen) =
-                    AST::from(cmd_change_assign)
-                        .inner_validate_generate::<C>(ident_types, pratt, depth)?;
+                let (cmd_change_assign_type, cmd_change_assign_code_gen) = AST::from(
+                    cmd_change_assign,
+                )
+                .inner_validate_generate::<C>(ident_types, pratt, depth)?;
                 debug_assert!(
                     matches!(cmd_change_assign_type, None),
                     "{cmd_change_assign_span:?}"
@@ -407,7 +425,7 @@ impl<'a> AST<'a> {
                     cmd_change_assign_code_gen.unwrap(),
                     cmd_code_gen.unwrap(),
                     pratt,
-                    depth
+                    depth,
                 ));
                 Ok((None, compiled_expr))
             }
