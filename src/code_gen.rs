@@ -1,5 +1,6 @@
 pub mod byte_code;
 pub mod cpp;
+pub mod java;
 
 use pest::{iterators::Pair, pratt_parser::PrattParser};
 
