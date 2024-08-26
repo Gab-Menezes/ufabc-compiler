@@ -135,7 +135,8 @@ impl<'a> AST<'a> {
             | Rule::bool_val
             | Rule::string_val
             | Rule::reserved
-            | Rule::op_una => unreachable!(),
+            | Rule::op_una 
+            | Rule::inner_string_raw => unreachable!(),
 
             Rule::sum
             | Rule::sub
@@ -271,13 +272,14 @@ impl<'a> AST<'a> {
                     ),
                     "{val_span:?}"
                 );
-                let atom_type = AST::from(val)
+                let val_type = AST::from(val.clone())
                     .inner_validate_generate::<C>(ident_types, pratt)?
                     .0
                     .ok_or(ValidationError::MissingType(val_span))?;
 
-                if atom_type.can_do_op(Rule::cmd_write) {
-                    Ok((None, None))
+                if val_type.can_do_op(Rule::cmd_write) {
+                    let compiled_expr = Some(C::cmd_write(val));
+                    Ok((None, compiled_expr))
                 } else {
                     Err(ValidationError::InvalidOperation(InvalidOperationError {
                         stmt_span,
@@ -579,6 +581,7 @@ enum ByteCode<'a> {
     CmdIf(Pair<'a, Rule>, Box<ByteCode<'a>>, Option<Box<ByteCode<'a>>>),
     CmdFor(Pair<'a, Rule>, Box<ByteCode<'a>>, Box<ByteCode<'a>>),
     CmdWhile(Pair<'a, Rule>, Box<ByteCode<'a>>),
+    CmdWrite(Pair<'a, Rule>),
 }
 
 trait CodeGen<'a>: Sized {
@@ -594,6 +597,7 @@ trait CodeGen<'a>: Sized {
     fn cmd_if(expr: Pair<'a, Rule>, true_branch: Self, false_branch: Option<Self>) -> Self;
     fn cmd_for(expr: Pair<'a, Rule>, change_assign: Self, block: Self) -> Self;
     fn cmd_while(expr: Pair<'a, Rule>, block: Self) -> Self;
+    fn cmd_write(cotent: Pair<'a, Rule>) -> Self;
 }
 
 impl<'a> CodeGen<'a> for ByteCode<'a> {
@@ -632,6 +636,10 @@ impl<'a> CodeGen<'a> for ByteCode<'a> {
 
     fn cmd_while(expr: Pair<'a, Rule>, block: Self) -> Self {
         Self::CmdWhile(expr, Box::new(block))
+    }
+    
+    fn cmd_write(cotent: Pair<'a, Rule>) -> Self {
+        Self::CmdWrite(cotent)
     }
 }
 
@@ -800,6 +808,36 @@ impl<'a> ByteCode<'a> {
                 }
 
                 block.clone().eval(pratt, mem);
+            },
+            ByteCode::CmdWrite(content) => {
+                match content.as_rule() {
+                    Rule::string_raw => {
+                        let content = content.as_str();
+                        println!("{content}");
+                    }
+                    Rule::int_val => {
+                        let content: i64 = content.as_str().parse().unwrap();
+                        println!("{content}");
+                    }
+                    Rule::float_val => {
+                        let content: f64 = content.as_str().parse().unwrap();
+                        println!("{content}");
+                    }
+                    Rule::r#true | Rule::r#false => {
+                        let content: bool = content.as_str().parse().unwrap();
+                        println!("{content}");
+                    }
+                    Rule::ident => {
+                        let content = mem.get(content.as_str()).unwrap().clone();
+                        match content {
+                            Values::Int(content) => println!("{content}"),
+                            Values::Float(content) => println!("{content}"),
+                            Values::String(content) => println!("{content}"),
+                            Values::Bool(content) => println!("{content}"),
+                        }
+                    }
+                    _ => unreachable!()
+                }
             },
         }
     }
