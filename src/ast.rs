@@ -87,10 +87,7 @@ impl<'a> AST<'a> {
                     let generated = AST::from(p)
                         .inner_validate_generate::<C>(ident_types, pratt, 0)?
                         .1;
-                    match generated {
-                        Some(generated) => acc.push(generated),
-                        None => {}
-                    }
+                    if let Some(generated) = generated { acc.push(generated) }
                 }
                 let c = Some(C::main_block(acc));
                 Ok((None, c))
@@ -101,10 +98,7 @@ impl<'a> AST<'a> {
                     let generated = AST::from(p)
                         .inner_validate_generate::<C>(ident_types, pratt, depth - 1)?
                         .1;
-                    match generated {
-                        Some(generated) => acc.push(generated),
-                        None => {}
-                    }
+                    if let Some(generated) = generated { acc.push(generated) }
                 }
                 let c = Some(C::code_block(acc));
                 Ok((None, c))
@@ -329,7 +323,7 @@ impl<'a> AST<'a> {
                 debug_assert!(matches!(cmd_true.as_rule(), Rule::cmd), "{cmd_true_span:?}");
                 let (cmd_true_type, cmd_true_code_gen) =
                     AST::from(cmd_true).inner_validate_generate::<C>(ident_types, pratt, depth)?;
-                debug_assert!(matches!(cmd_true_type, None), "{cmd_true_span:?}");
+                debug_assert!(cmd_true_type.is_none(), "{cmd_true_span:?}");
                 debug_assert!(cmd_true_code_gen.is_some(), "{cmd_true_span:?}");
 
                 let cmd_false = pairs.next().map(
@@ -341,7 +335,7 @@ impl<'a> AST<'a> {
                         );
                         let (cmd_false_type, cmd_false_code_gen) = AST::from(cmd_false)
                             .inner_validate_generate::<C>(ident_types, pratt, depth)?;
-                        debug_assert!(matches!(cmd_false_type, None), "{cmd_false_span:?}");
+                        debug_assert!(cmd_false_type.is_none(), "{cmd_false_span:?}");
                         debug_assert!(cmd_false_code_gen.is_some(), "{cmd_false_span:?}");
                         Ok((None, cmd_false_code_gen))
                     },
@@ -403,7 +397,7 @@ impl<'a> AST<'a> {
                 )
                 .inner_validate_generate::<C>(ident_types, pratt, depth)?;
                 debug_assert!(
-                    matches!(cmd_change_assign_type, None),
+                    cmd_change_assign_type.is_none(),
                     "{cmd_change_assign_span:?}"
                 );
                 debug_assert!(
@@ -417,7 +411,7 @@ impl<'a> AST<'a> {
                 debug_assert!(matches!(cmd_rule, Rule::cmd), "{cmd_span:?}");
                 let (cmd_type, cmd_code_gen) =
                     AST::from(cmd).inner_validate_generate::<C>(ident_types, pratt, depth)?;
-                debug_assert!(matches!(cmd_type, None), "{cmd_span:?}");
+                debug_assert!(cmd_type.is_none(), "{cmd_span:?}");
                 debug_assert!(cmd_code_gen.is_some(), "{cmd_span:?}");
 
                 let compiled_expr = Some(C::cmd_for(
@@ -455,7 +449,7 @@ impl<'a> AST<'a> {
                 debug_assert!(matches!(cmd_rule, Rule::cmd), "{cmd_span:?}");
                 let (cmd_type, cmd_code_gen) =
                     AST::from(cmd).inner_validate_generate::<C>(ident_types, pratt, depth)?;
-                debug_assert!(matches!(cmd_type, None), "{cmd_span:?}");
+                debug_assert!(cmd_type.is_none(), "{cmd_span:?}");
                 debug_assert!(cmd_code_gen.is_some(), "{cmd_span:?}");
 
                 let compiled_expr = Some(C::cmd_while(expr, cmd_code_gen.unwrap(), pratt, depth));

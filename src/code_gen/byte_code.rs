@@ -70,7 +70,7 @@ impl<'a> CodeGen<'a> for ByteCode<'a> {
         Self::CmdIf(
             expr,
             Box::new(true_branch),
-            false_branch.map(|false_branch| Box::new(false_branch)),
+            false_branch.map(Box::new),
         )
     }
 
@@ -99,7 +99,7 @@ impl<'a> CodeGen<'a> for ByteCode<'a> {
 
 impl<'a> ByteCode<'a> {
     pub fn eval(self, pratt: &PrattParser<Rule>, mem: &mut HashMap<String, Values>) {
-        fn apply_op<'a>(lhs: Values, op: Pair<'a, Rule>, rhs: Values) -> Values {
+        fn apply_op(lhs: Values, op: Pair<'_, Rule>, rhs: Values) -> Values {
             match (lhs, rhs) {
                 (Values::Int(lhs), Values::Int(rhs)) => match op.as_rule() {
                     Rule::sum => Values::Int(lhs + rhs),
@@ -165,8 +165,8 @@ impl<'a> ByteCode<'a> {
             }
         }
 
-        fn eval_expr<'a>(
-            expr: Pair<'a, Rule>,
+        fn eval_expr(
+            expr: Pair<'_, Rule>,
             pratt: &PrattParser<Rule>,
             mem: &mut HashMap<String, Values>,
         ) -> Values {
@@ -227,12 +227,7 @@ impl<'a> ByteCode<'a> {
                 };
                 if cond {
                     true_branch.eval(pratt, mem);
-                } else {
-                    match false_branch {
-                        Some(false_branch) => false_branch.eval(pratt, mem),
-                        None => {}
-                    }
-                }
+                } else if let Some(false_branch) = false_branch { false_branch.eval(pratt, mem) }
             }
             ByteCode::CmdFor(expr, change_assing, block) => loop {
                 let cond = eval_expr(expr.clone(), pratt, mem);

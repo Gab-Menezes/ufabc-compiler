@@ -11,7 +11,7 @@ impl Cpp {
         self.0
     }
 
-    fn gen_expr<'a>(expr: Pair<'a, Rule>, pratt: &PrattParser<Rule>) -> String {
+    fn gen_expr(expr: Pair<'_, Rule>, pratt: &PrattParser<Rule>) -> String {
         let pairs = expr.into_inner();
         pratt
             .map_primary(|atom| match atom.as_rule() {
