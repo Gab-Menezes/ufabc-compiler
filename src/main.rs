@@ -124,14 +124,16 @@ impl<'a> AST<'a> {
         pratt: &PrattParser<Rule>,
     ) -> Result<C, ValidationError<'a>> {
         let mut ident_types = HashMap::new();
-        self.inner_validate_generate::<C>(&mut ident_types, pratt).map(|(_, c)| c.unwrap())
+        self.inner_validate_generate::<C>(&mut ident_types, pratt, 0).map(|(_, c)| c.unwrap())
     }
 
     fn inner_validate_generate<C: CodeGen<'a>>(
         self,
         ident_types: &mut HashMap<&'a str, (Types, Span<'a>)>,
         pratt: &PrattParser<Rule>,
+        mut depth: u32
     ) -> Result<(Option<Types>, Option<C>), ValidationError<'a>> {
+        depth += 1;
         let stmt_span = self.0.as_span();
         match self.0.as_rule() {
             Rule::EOI => Ok((None, None)),
@@ -182,7 +184,7 @@ impl<'a> AST<'a> {
                 let mut acc = Vec::new();
                 for p in self.0.into_inner() {
                     let generated = AST::from(p)
-                        .inner_validate_generate::<C>(ident_types, pratt)?
+                        .inner_validate_generate::<C>(ident_types, pratt, 0)?
                         .1;
                     match generated {
                         Some(generated) => acc.push(generated),
@@ -196,7 +198,7 @@ impl<'a> AST<'a> {
                 let mut acc = Vec::new();
                 for p in self.0.into_inner() {
                     let generated = AST::from(p)
-                        .inner_validate_generate::<C>(ident_types, pratt)?
+                        .inner_validate_generate::<C>(ident_types, pratt, depth - 1)?
                         .1;
                     match generated {
                         Some(generated) => acc.push(generated),
@@ -221,7 +223,7 @@ impl<'a> AST<'a> {
                     "{lhs_span:?}"
                 );
                 let lhs_type = AST::from(lhs)
-                    .inner_validate_generate::<C>(ident_types, pratt)?
+                    .inner_validate_generate::<C>(ident_types, pratt, depth)?
                     .0
                     .ok_or(ValidationError::MissingType(lhs_span))?;
 
@@ -229,7 +231,7 @@ impl<'a> AST<'a> {
                 let expr_span = expr.as_span();
                 debug_assert!(matches!(expr.as_rule(), Rule::expr), "{expr_span:?}");
                 let expr_type = AST::from(expr.clone())
-                    .inner_validate_generate::<C>(ident_types, pratt)?
+                    .inner_validate_generate::<C>(ident_types, pratt, depth)?
                     .0
                     .ok_or(ValidationError::MissingType(expr_span))?;
 
@@ -243,7 +245,7 @@ impl<'a> AST<'a> {
                         )),
                         Entry::Vacant(e) => {
                             let compiled_expr =
-                                Some(C::declare_var(ident.as_str(), lhs_type, expr, pratt));
+                                Some(C::declare_var(ident.as_str(), lhs_type, expr, pratt, depth));
                             e.insert((lhs_type, stmt_span));
                             Ok((None, compiled_expr))
                         }
@@ -264,12 +266,12 @@ impl<'a> AST<'a> {
                 let ident_span = ident.as_span();
                 debug_assert!(matches!(ident_rule, Rule::ident), "{ident_span:?}");
                 let atom_type = AST::from(ident.clone())
-                    .inner_validate_generate::<C>(ident_types, pratt)?
+                    .inner_validate_generate::<C>(ident_types, pratt, depth)?
                     .0
                     .ok_or(ValidationError::MissingType(ident_span))?;
 
                 if atom_type.can_do_op(Rule::cmd_read) {
-                    let compiled_expr = Some(C::cmd_read(ident.as_str(), atom_type));
+                    let compiled_expr = Some(C::cmd_read(ident.as_str(), atom_type, depth));
                     Ok((None, compiled_expr))
                 } else {
                     Err(ValidationError::InvalidOperation(InvalidOperationError {
@@ -297,12 +299,12 @@ impl<'a> AST<'a> {
                     "{val_span:?}"
                 );
                 let val_type = AST::from(val.clone())
-                    .inner_validate_generate::<C>(ident_types, pratt)?
+                    .inner_validate_generate::<C>(ident_types, pratt, depth)?
                     .0
                     .ok_or(ValidationError::MissingType(val_span))?;
 
                 if val_type.can_do_op(Rule::cmd_write) {
-                    let compiled_expr = Some(C::cmd_write(val, val_type));
+                    let compiled_expr = Some(C::cmd_write(val, val_type, depth));
                     Ok((None, compiled_expr))
                 } else {
                     Err(ValidationError::InvalidOperation(InvalidOperationError {
@@ -319,7 +321,7 @@ impl<'a> AST<'a> {
                 let ident_span = ident.as_span();
                 debug_assert!(matches!(ident.as_rule(), Rule::ident), "{ident_span:?}");
                 let ident_type = AST::from(ident.clone())
-                    .inner_validate_generate::<C>(ident_types, pratt)?
+                    .inner_validate_generate::<C>(ident_types, pratt, depth)?
                     .0
                     .ok_or(ValidationError::MissingType(ident_span))?;
 
@@ -327,13 +329,13 @@ impl<'a> AST<'a> {
                 let expr_span = expr.as_span();
                 debug_assert!(matches!(expr.as_rule(), Rule::expr), "{expr_span:?}");
                 let expr_type = AST::from(expr.clone())
-                    .inner_validate_generate::<C>(ident_types, pratt)?
+                    .inner_validate_generate::<C>(ident_types, pratt, depth)?
                     .0
                     .ok_or(ValidationError::MissingType(expr_span))?;
 
                 if ident_type == expr_type {
                     let compiled_expr =
-                        Some(C::assign_var(ident.as_str(), ident_type, expr, pratt));
+                        Some(C::assign_var(ident.as_str(), ident_type, expr, pratt, depth));
                     Ok((None, compiled_expr))
                 } else {
                     Err(ValidationError::TypeMismatch(TypeMismatchError {
@@ -351,7 +353,7 @@ impl<'a> AST<'a> {
                 let ident_span = ident.as_span();
                 debug_assert!(matches!(ident.as_rule(), Rule::ident), "{ident_span:?}");
                 let ident_type = AST::from(ident.clone())
-                    .inner_validate_generate::<C>(ident_types, pratt)?
+                    .inner_validate_generate::<C>(ident_types, pratt, depth)?
                     .0
                     .ok_or(ValidationError::MissingType(ident_span))?;
 
@@ -375,7 +377,7 @@ impl<'a> AST<'a> {
                 let expr_span = expr.as_span();
                 debug_assert!(matches!(expr_rule, Rule::expr), "{expr_span:?}");
                 let expr_type = AST::from(expr.clone())
-                    .inner_validate_generate::<C>(ident_types, pratt)?
+                    .inner_validate_generate::<C>(ident_types, pratt, depth)?
                     .0
                     .ok_or(ValidationError::MissingType(ident_span))?;
 
@@ -392,6 +394,7 @@ impl<'a> AST<'a> {
                         op,
                         expr,
                         pratt,
+                        depth
                     ));
                     Ok((None, compiled_expr))
                 }
@@ -404,7 +407,7 @@ impl<'a> AST<'a> {
                 let expr_span = expr.as_span();
                 debug_assert!(matches!(expr.as_rule(), Rule::expr), "{expr_span:?}");
                 let expr_type = AST::from(expr.clone())
-                    .inner_validate_generate::<C>(ident_types, pratt)?
+                    .inner_validate_generate::<C>(ident_types, pratt, depth)?
                     .0
                     .ok_or(ValidationError::MissingType(expr_span))?;
 
@@ -419,7 +422,7 @@ impl<'a> AST<'a> {
                 let cmd_true_span = cmd_true.as_span();
                 debug_assert!(matches!(cmd_true.as_rule(), Rule::cmd), "{cmd_true_span:?}");
                 let (cmd_true_type, cmd_true_code_gen) =
-                    AST::from(cmd_true).inner_validate_generate::<C>(ident_types, pratt)?;
+                    AST::from(cmd_true).inner_validate_generate::<C>(ident_types, pratt, depth)?;
                 debug_assert!(matches!(cmd_true_type, None), "{cmd_true_span:?}");
                 debug_assert!(cmd_true_code_gen.is_some(), "{cmd_true_span:?}");
 
@@ -431,7 +434,7 @@ impl<'a> AST<'a> {
                             "{cmd_false_span:?}"
                         );
                         let (cmd_false_type, cmd_false_code_gen) = AST::from(cmd_false)
-                            .inner_validate_generate::<C>(ident_types, pratt)?;
+                            .inner_validate_generate::<C>(ident_types, pratt, depth)?;
                         debug_assert!(matches!(cmd_false_type, None), "{cmd_false_span:?}");
                         debug_assert!(cmd_false_code_gen.is_some(), "{cmd_false_span:?}");
                         Ok((None, cmd_false_code_gen))
@@ -446,12 +449,13 @@ impl<'a> AST<'a> {
                             cmd_true_code_gen.unwrap(),
                             cmd_false_code_gen,
                             pratt,
+                            depth
                         ));
                         Ok((None, compiled_expr))
                     }
                     None => {
                         let compiled_expr =
-                            Some(C::cmd_if(expr, cmd_true_code_gen.unwrap(), None, pratt));
+                            Some(C::cmd_if(expr, cmd_true_code_gen.unwrap(), None, pratt, depth));
                         Ok((None, compiled_expr))
                     }
                 }
@@ -465,7 +469,7 @@ impl<'a> AST<'a> {
                 let expr_span = expr.as_span();
                 debug_assert!(matches!(expr_rule, Rule::expr), "{expr_span:?}");
                 let expr_type = AST::from(expr.clone())
-                    .inner_validate_generate::<C>(ident_types, pratt)?
+                    .inner_validate_generate::<C>(ident_types, pratt, depth)?
                     .0
                     .ok_or(ValidationError::MissingType(expr_span))?;
 
@@ -485,7 +489,7 @@ impl<'a> AST<'a> {
                 );
                 let (cmd_change_assign_type, cmd_change_assign_code_gen) =
                     AST::from(cmd_change_assign)
-                        .inner_validate_generate::<C>(ident_types, pratt)?;
+                        .inner_validate_generate::<C>(ident_types, pratt, depth)?;
                 debug_assert!(
                     matches!(cmd_change_assign_type, None),
                     "{cmd_change_assign_span:?}"
@@ -500,7 +504,7 @@ impl<'a> AST<'a> {
                 let cmd_span = cmd.as_span();
                 debug_assert!(matches!(cmd_rule, Rule::cmd), "{cmd_span:?}");
                 let (cmd_type, cmd_code_gen) =
-                    AST::from(cmd).inner_validate_generate::<C>(ident_types, pratt)?;
+                    AST::from(cmd).inner_validate_generate::<C>(ident_types, pratt, depth)?;
                 debug_assert!(matches!(cmd_type, None), "{cmd_span:?}");
                 debug_assert!(cmd_code_gen.is_some(), "{cmd_span:?}");
 
@@ -509,6 +513,7 @@ impl<'a> AST<'a> {
                     cmd_change_assign_code_gen.unwrap(),
                     cmd_code_gen.unwrap(),
                     pratt,
+                    depth
                 ));
                 Ok((None, compiled_expr))
             }
@@ -521,7 +526,7 @@ impl<'a> AST<'a> {
                 let expr_span = expr.as_span();
                 debug_assert!(matches!(expr_rule, Rule::expr), "{expr_span:?}");
                 let expr_type = AST::from(expr.clone())
-                    .inner_validate_generate::<C>(ident_types, pratt)?
+                    .inner_validate_generate::<C>(ident_types, pratt, depth)?
                     .0
                     .ok_or(ValidationError::MissingType(expr_span))?;
 
@@ -537,11 +542,11 @@ impl<'a> AST<'a> {
                 let cmd_span = cmd.as_span();
                 debug_assert!(matches!(cmd_rule, Rule::cmd), "{cmd_span:?}");
                 let (cmd_type, cmd_code_gen) =
-                    AST::from(cmd).inner_validate_generate::<C>(ident_types, pratt)?;
+                    AST::from(cmd).inner_validate_generate::<C>(ident_types, pratt, depth)?;
                 debug_assert!(matches!(cmd_type, None), "{cmd_span:?}");
                 debug_assert!(cmd_code_gen.is_some(), "{cmd_span:?}");
 
-                let compiled_expr = Some(C::cmd_while(expr, cmd_code_gen.unwrap(), pratt));
+                let compiled_expr = Some(C::cmd_while(expr, cmd_code_gen.unwrap(), pratt, depth));
                 Ok((None, compiled_expr))
             }
             Rule::expr => {
@@ -555,7 +560,7 @@ impl<'a> AST<'a> {
                         | Rule::string_raw
                         | Rule::expr
                         | Rule::ident => {
-                            AST::from(atom).inner_validate_generate::<C>(ident_types, pratt)
+                            AST::from(atom).inner_validate_generate::<C>(ident_types, pratt, depth)
                         }
                         _ => unreachable!(),
                     })
@@ -612,12 +617,14 @@ trait CodeGen<'a>: Sized {
         t: Types,
         expr: Pair<'a, Rule>,
         pratt: &PrattParser<Rule>,
+        depth: u32
     ) -> Self;
     fn assign_var(
         ident: &'a str,
         t: Types,
         expr: Pair<'a, Rule>,
         pratt: &PrattParser<Rule>,
+        depth: u32
     ) -> Self;
     fn change_assign_var(
         ident: &'a str,
@@ -625,22 +632,25 @@ trait CodeGen<'a>: Sized {
         op: Pair<'a, Rule>,
         expr: Pair<'a, Rule>,
         pratt: &PrattParser<Rule>,
+        depth: u32
     ) -> Self;
     fn cmd_if(
         expr: Pair<'a, Rule>,
         true_branch: Self,
         false_branch: Option<Self>,
         pratt: &PrattParser<Rule>,
+        depth: u32
     ) -> Self;
     fn cmd_for(
         expr: Pair<'a, Rule>,
         change_assign: Self,
         block: Self,
         pratt: &PrattParser<Rule>,
+        depth: u32
     ) -> Self;
-    fn cmd_while(expr: Pair<'a, Rule>, block: Self, pratt: &PrattParser<Rule>) -> Self;
-    fn cmd_write(content: Pair<'a, Rule>, t: Types) -> Self;
-    fn cmd_read(ident: &'a str, t: Types) -> Self;
+    fn cmd_while(expr: Pair<'a, Rule>, block: Self, pratt: &PrattParser<Rule>, depth: u32) -> Self;
+    fn cmd_write(content: Pair<'a, Rule>, t: Types, depth: u32) -> Self;
+    fn cmd_read(ident: &'a str, t: Types, depth: u32) -> Self;
 }
 
 #[derive(Debug, Clone)]
@@ -666,11 +676,11 @@ impl<'a> CodeGen<'a> for ByteCode<'a> {
         Self::CodeBlock(acc)
     }
 
-    fn declare_var(ident: &'a str, _: Types, expr: Pair<'a, Rule>, _: &PrattParser<Rule>) -> Self {
+    fn declare_var(ident: &'a str, _: Types, expr: Pair<'a, Rule>, _: &PrattParser<Rule>, _: u32) -> Self {
         Self::DeclareVar(ident.to_string(), expr)
     }
 
-    fn assign_var(ident: &'a str, _: Types, expr: Pair<'a, Rule>, _: &PrattParser<Rule>) -> Self {
+    fn assign_var(ident: &'a str, _: Types, expr: Pair<'a, Rule>, _: &PrattParser<Rule>, _: u32) -> Self {
         Self::AssignVar(ident.to_string(), expr)
     }
 
@@ -680,6 +690,7 @@ impl<'a> CodeGen<'a> for ByteCode<'a> {
         op: Pair<'a, Rule>,
         expr: Pair<'a, Rule>,
         _: &PrattParser<Rule>,
+        _: u32
     ) -> Self {
         Self::ChangeAssignVar(ident.to_string(), op, expr)
     }
@@ -689,6 +700,7 @@ impl<'a> CodeGen<'a> for ByteCode<'a> {
         true_branch: Self,
         false_branch: Option<Self>,
         _: &PrattParser<Rule>,
+        _: u32
     ) -> Self {
         Self::CmdIf(
             expr,
@@ -702,19 +714,20 @@ impl<'a> CodeGen<'a> for ByteCode<'a> {
         change_assign: Self,
         block: Self,
         _: &PrattParser<Rule>,
+        _: u32
     ) -> Self {
         Self::CmdFor(expr, Box::new(change_assign), Box::new(block))
     }
 
-    fn cmd_while(expr: Pair<'a, Rule>, block: Self, _: &PrattParser<Rule>) -> Self {
+    fn cmd_while(expr: Pair<'a, Rule>, block: Self, _: &PrattParser<Rule>, _: u32) -> Self {
         Self::CmdWhile(expr, Box::new(block))
     }
 
-    fn cmd_write(content: Pair<'a, Rule>, _: Types) -> Self {
+    fn cmd_write(content: Pair<'a, Rule>, _: Types, _: u32) -> Self {
         Self::CmdWrite(content)
     }
 
-    fn cmd_read(ident: &'a str, _: Types) -> Self {
+    fn cmd_read(ident: &'a str, _: Types, _: u32) -> Self {
         Self::CmdRead(ident.to_owned())
     }
 }
@@ -961,6 +974,10 @@ impl CppCode {
             })
             .parse(pairs)
     }
+    
+    fn gen_indentation(depth: u32) -> String {
+        "    ".repeat(depth as usize)
+    }
 }
 
 impl<'a> CodeGen<'a> for CppCode {
@@ -978,7 +995,7 @@ int main() {
             output.push('\n');
         }
 
-        output.push_str("\treturn 0;\n");
+        output.push_str("    return 0;\n");
         output.push('}');
 
         Self(output)
@@ -998,14 +1015,16 @@ int main() {
         t: Types,
         expr: Pair<'a, Rule>,
         pratt: &PrattParser<Rule>,
+        depth: u32
     ) -> Self {
+        let indentation = Self::gen_indentation(depth);
         let t = match t {
             Types::Int => "long long int",
             Types::Float => "double",
             Types::String => "std::string",
             Types::Bool => "bool",
         };
-        Self(format!("{t} {ident} = {};", Self::gen_expr(expr, pratt)))
+        Self(format!("{indentation}{t} {ident} = {};", Self::gen_expr(expr, pratt)))
     }
 
     fn assign_var(
@@ -1013,8 +1032,10 @@ int main() {
         _: Types,
         expr: Pair<'a, Rule>,
         pratt: &PrattParser<Rule>,
+        depth: u32
     ) -> Self {
-        Self(format!("{ident} = {};", Self::gen_expr(expr, pratt)))
+        let indentation = Self::gen_indentation(depth);
+        Self(format!("{indentation}{ident} = {};", Self::gen_expr(expr, pratt)))
     }
 
     fn change_assign_var(
@@ -1023,6 +1044,7 @@ int main() {
         op: Pair<'a, Rule>,
         expr: Pair<'a, Rule>,
         pratt: &PrattParser<Rule>,
+        depth: u32
     ) -> Self {
         let op = match op.as_rule() {
             Rule::sum => "+",
@@ -1032,7 +1054,8 @@ int main() {
             _ => unreachable!(),
         };
 
-        Self(format!("{ident} {op}= {};", Self::gen_expr(expr, pratt)))
+        let indentation = Self::gen_indentation(depth);
+        Self(format!("{indentation}{ident} {op}= {};", Self::gen_expr(expr, pratt)))
     }
 
     fn cmd_if(
@@ -1040,14 +1063,16 @@ int main() {
         true_branch: Self,
         false_branch: Option<Self>,
         pratt: &PrattParser<Rule>,
+        depth: u32
     ) -> Self {
+        let indentation = Self::gen_indentation(depth);
         let output = format!(
-            "if ({}) {{\n{}\n}}",
+            "{indentation}if ({}) {{\n{}{indentation}}}",
             Self::gen_expr(expr, pratt),
             true_branch.0
         );
         match false_branch {
-            Some(false_branch) => Self(format!("{output} else {{\n{}\n}}", false_branch.0)),
+            Some(false_branch) => Self(format!("{output} else {{\n{}{indentation}}}", false_branch.0)),
             None => Self(output),
         }
     }
@@ -1057,36 +1082,41 @@ int main() {
         mut change_assign: Self,
         block: Self,
         pratt: &PrattParser<Rule>,
+        depth: u32
     ) -> Self {
         change_assign.0.pop();
+        let indentation = Self::gen_indentation(depth);
         Self(format!(
-            "for (; {}; {}) {{\n{}\n}}",
+            "{indentation}for (; {}; {}) {{\n{}{indentation}}}",
             Self::gen_expr(expr, pratt),
-            change_assign.0,
+            change_assign.0.trim_start(),
             block.0
         ))
     }
 
-    fn cmd_while(expr: Pair<'a, Rule>, block: Self, pratt: &PrattParser<Rule>) -> Self {
+    fn cmd_while(expr: Pair<'a, Rule>, block: Self, pratt: &PrattParser<Rule>, depth: u32) -> Self {
+        let indentation = Self::gen_indentation(depth);
         Self(format!(
-            "while ({}) {{\n{}\n}}",
+            "{indentation}while ({}) {{\n{}\n{indentation}}}",
             Self::gen_expr(expr, pratt),
             block.0
         ))
     }
 
-    fn cmd_write(content: Pair<'a, Rule>, _: Types) -> Self {
+    fn cmd_write(content: Pair<'a, Rule>, _: Types, depth: u32) -> Self {
+        let indentation = Self::gen_indentation(depth);
         match content.as_rule() {
-            Rule::string_raw => Self(format!("std::cout << \"{}\" << '\\n';", content.as_str())),
+            Rule::string_raw => Self(format!("{indentation}std::cout << \"{}\" << '\\n';", content.as_str())),
             Rule::int_val | Rule::float_val | Rule::r#true | Rule::r#false | Rule::ident => {
-                Self(format!("std::cout << {} << '\\n';", content.as_str()))
+                Self(format!("{indentation}std::cout << {} << '\\n';", content.as_str()))
             }
             _ => unreachable!(),
         }
     }
 
-    fn cmd_read(ident: &'a str, _: Types) -> Self {
-        Self(format!("std::cin >> {ident};"))
+    fn cmd_read(ident: &'a str, _: Types, depth: u32) -> Self {
+        let indentation = Self::gen_indentation(depth);
+        Self(format!("{indentation}std::cin >> {ident};"))
     }
 }
 
