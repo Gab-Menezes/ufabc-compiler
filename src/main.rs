@@ -70,7 +70,7 @@ fn main() {
                 Err(_) => {
                     println!("Error while creating file: {file:?}");
                     return;
-                },
+                }
             };
 
             let content = cpp.into_inner();
@@ -79,7 +79,7 @@ fn main() {
         Err(err) => {
             println!("Error while generating C++ code:\n{err}");
             return;
-        },
+        }
     }
 
     match java {
@@ -93,7 +93,7 @@ fn main() {
                 Err(_) => {
                     println!("Error while creating file: {file:?}");
                     return;
-                },
+                }
             };
 
             let content = java.into_inner();
@@ -102,7 +102,7 @@ fn main() {
         Err(err) => {
             println!("Error while generating Java code:\n{err}");
             return;
-        },
+        }
     }
 
     match bc {
@@ -113,7 +113,6 @@ fn main() {
         }
         Err(err) => {
             println!("Error while generating Byte Code:\n{err}");
-            return;
-        },
+        }
     }
 }
