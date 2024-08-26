@@ -2,6 +2,7 @@
 
 use std::{
     collections::{hash_map::Entry, HashMap, VecDeque},
+    io::Read,
     marker::PhantomData,
 };
 
@@ -135,7 +136,7 @@ impl<'a> AST<'a> {
             | Rule::bool_val
             | Rule::string_val
             | Rule::reserved
-            | Rule::op_una 
+            | Rule::op_una
             | Rule::inner_string_raw => unreachable!(),
 
             Rule::sum
@@ -240,13 +241,14 @@ impl<'a> AST<'a> {
                 let ident_rule = ident.as_rule();
                 let ident_span = ident.as_span();
                 debug_assert!(matches!(ident_rule, Rule::ident), "{ident_span:?}");
-                let atom_type = AST::from(ident)
+                let atom_type = AST::from(ident.clone())
                     .inner_validate_generate::<C>(ident_types, pratt)?
                     .0
                     .ok_or(ValidationError::MissingType(ident_span))?;
 
                 if atom_type.can_do_op(Rule::cmd_read) {
-                    Ok((None, None))
+                    let compiled_expr = Some(C::cmd_read(ident.as_str()));
+                    Ok((None, compiled_expr))
                 } else {
                     Err(ValidationError::InvalidOperation(InvalidOperationError {
                         stmt_span,
@@ -582,6 +584,7 @@ enum ByteCode<'a> {
     CmdFor(Pair<'a, Rule>, Box<ByteCode<'a>>, Box<ByteCode<'a>>),
     CmdWhile(Pair<'a, Rule>, Box<ByteCode<'a>>),
     CmdWrite(Pair<'a, Rule>),
+    CmdRead(String),
 }
 
 trait CodeGen<'a>: Sized {
@@ -598,6 +601,7 @@ trait CodeGen<'a>: Sized {
     fn cmd_for(expr: Pair<'a, Rule>, change_assign: Self, block: Self) -> Self;
     fn cmd_while(expr: Pair<'a, Rule>, block: Self) -> Self;
     fn cmd_write(cotent: Pair<'a, Rule>) -> Self;
+    fn cmd_read(ident: &'a str) -> Self;
 }
 
 impl<'a> CodeGen<'a> for ByteCode<'a> {
@@ -637,9 +641,13 @@ impl<'a> CodeGen<'a> for ByteCode<'a> {
     fn cmd_while(expr: Pair<'a, Rule>, block: Self) -> Self {
         Self::CmdWhile(expr, Box::new(block))
     }
-    
+
     fn cmd_write(cotent: Pair<'a, Rule>) -> Self {
         Self::CmdWrite(cotent)
+    }
+
+    fn cmd_read(ident: &'a str) -> Self {
+        Self::CmdRead(ident.to_owned())
     }
 }
 
@@ -754,8 +762,7 @@ impl<'a> ByteCode<'a> {
 
         match self {
             ByteCode::DeclareVar(ident, expr) | ByteCode::AssignVar(ident, expr) => {
-                let v = eval_expr(expr, pratt, mem);
-                println!("{ident}: {v:?}");
+                let v = eval_expr(expr, pratt, mem);;
                 mem.insert(ident, v);
             }
             ByteCode::CodeBlock(bcs) => {
@@ -767,7 +774,6 @@ impl<'a> ByteCode<'a> {
                 let lhs = mem.get(&ident).unwrap().clone();
                 let rhs = eval_expr(expr, pratt, mem);
                 let v = apply_op(lhs, op, rhs);
-                println!("{ident}: {v:?}");
                 mem.insert(ident, v);
             }
             ByteCode::CmdIf(expr, true_branch, false_branch) => {
@@ -809,36 +815,46 @@ impl<'a> ByteCode<'a> {
 
                 block.clone().eval(pratt, mem);
             },
-            ByteCode::CmdWrite(content) => {
-                match content.as_rule() {
-                    Rule::string_raw => {
-                        let content = content.as_str();
-                        println!("{content}");
-                    }
-                    Rule::int_val => {
-                        let content: i64 = content.as_str().parse().unwrap();
-                        println!("{content}");
-                    }
-                    Rule::float_val => {
-                        let content: f64 = content.as_str().parse().unwrap();
-                        println!("{content}");
-                    }
-                    Rule::r#true | Rule::r#false => {
-                        let content: bool = content.as_str().parse().unwrap();
-                        println!("{content}");
-                    }
-                    Rule::ident => {
-                        let content = mem.get(content.as_str()).unwrap().clone();
-                        match content {
-                            Values::Int(content) => println!("{content}"),
-                            Values::Float(content) => println!("{content}"),
-                            Values::String(content) => println!("{content}"),
-                            Values::Bool(content) => println!("{content}"),
-                        }
-                    }
-                    _ => unreachable!()
+            ByteCode::CmdWrite(content) => match content.as_rule() {
+                Rule::string_raw => {
+                    let content = content.as_str();
+                    println!("{content}");
                 }
+                Rule::int_val => {
+                    let content: i64 = content.as_str().parse().unwrap();
+                    println!("{content}");
+                }
+                Rule::float_val => {
+                    let content: f64 = content.as_str().parse().unwrap();
+                    println!("{content}");
+                }
+                Rule::r#true | Rule::r#false => {
+                    let content: bool = content.as_str().parse().unwrap();
+                    println!("{content}");
+                }
+                Rule::ident => {
+                    let content = mem.get(content.as_str()).unwrap().clone();
+                    match content {
+                        Values::Int(content) => println!("{content}"),
+                        Values::Float(content) => println!("{content}"),
+                        Values::String(content) => println!("{content}"),
+                        Values::Bool(content) => println!("{content}"),
+                    }
+                }
+                _ => unreachable!(),
             },
+            ByteCode::CmdRead(ident) => {
+                let mut buffer = String::new();
+                std::io::stdin().read_line(&mut buffer).unwrap();
+                let buffer = &buffer[..buffer.len() - 1];
+                let val = mem.get_mut(&ident).unwrap();
+                match val {
+                    Values::Int(val) => *val = buffer.parse().unwrap(),
+                    Values::Float(val) => *val = buffer.parse().unwrap(),
+                    Values::String(val) => *val = buffer.to_owned(),
+                    Values::Bool(val) => *val = buffer.parse().unwrap(),
+                }
+            }
         }
     }
 }
@@ -863,15 +879,11 @@ fn main() {
         .next()
         .unwrap(); // get and unwrap the `file` rule; never fails
 
-    // println!("{pair:#?}");
-
     let (_, bc) = AST::from(pair)
         .validate_generate::<ByteCode>(&pratt)
         .unwrap();
     let bc = bc.unwrap();
 
     let mut mem = HashMap::new();
-    println!("{bc:#?}");
-
     bc.eval(&pratt, &mut mem)
 }
