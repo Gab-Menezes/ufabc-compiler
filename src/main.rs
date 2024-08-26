@@ -24,16 +24,21 @@ fn main() {
         .op(Op::infix(Rule::mul, Assoc::Left) | Op::infix(Rule::div, Assoc::Left))
         .op(Op::prefix(Rule::negation) | Op::prefix(Rule::negative));
 
-    let unparsed_file = std::fs::read_to_string("test.isi").expect("cannot read file");
+    let unparsed_file = std::fs::read_to_string("test1.isi").expect("cannot read file");
 
     let pair = LangParser::parse(Rule::main, &unparsed_file)
         .expect("unsuccessful parse")
         .next()
         .unwrap();
 
-    let gen = AST::from(pair).validate_generate::<Java>(&pratt).unwrap();
+    let gen = AST::from(pair).validate_generate::<Java>(&pratt);
 
-    // let mut mem = HashMap::new();
-    // gen.eval(&pratt, &mut mem);
-    println!("{}", gen.into_inner());
+    match gen {
+        Ok(gen) => {
+            // let mut mem = HashMap::new();
+            // gen.eval(&pratt, &mut mem)
+            println!("{}", gen.into_inner());
+        },
+        Err(err) => println!("{err}"),
+    }
 }

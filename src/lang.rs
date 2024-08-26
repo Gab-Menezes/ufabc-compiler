@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use pest_derive::Parser;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -6,6 +8,17 @@ pub enum Types {
     Float,
     String,
     Bool,
+}
+
+impl Display for Types {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Types::Int => f.write_str("int"),
+            Types::Float => f.write_str("float"),
+            Types::String => f.write_str("string"),
+            Types::Bool => f.write_str("bool"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
