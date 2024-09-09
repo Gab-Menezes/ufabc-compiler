@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-pest = "2.7.11"
-pest_derive = "2.7.11"
+pest = "2.7.12"
+pest_derive = "2.7.12"
 thiserror = "1.0.63"
-clap = { version = "4.5.16", features = ["derive"] }
+clap = { version = "4.5.17", features = ["derive"] }

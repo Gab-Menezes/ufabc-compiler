@@ -24,13 +24,19 @@ impl<'a> AST<'a> {
         pratt: &PrattParser<Rule>,
     ) -> Result<C, ValidationError<'a>> {
         let mut ident_types = HashMap::new();
-        self.inner_validate_generate::<C>(&mut ident_types, pratt, 0)
-            .map(|(_, c)| c.unwrap())
+        let r = self.inner_validate_generate::<C>(&mut ident_types, pratt, 0)
+            .map(|(_, c)| c.unwrap())?;
+        for (_, (_, span, used)) in ident_types {
+            if !used {
+                return Err(ValidationError::VariableNotUsed(span))
+            }
+        }
+        Ok(r)
     }
 
     fn inner_validate_generate<C: CodeGen<'a>>(
         self,
-        ident_types: &mut HashMap<&'a str, (Types, Span<'a>)>,
+        ident_types: &mut HashMap<&'a str, (Types, Span<'a>, bool)>,
         pratt: &PrattParser<Rule>,
         mut depth: u32,
     ) -> Result<(Option<Types>, Option<C>), ValidationError<'a>> {
@@ -77,9 +83,15 @@ impl<'a> AST<'a> {
             Rule::float_val => Ok((Some(Types::Float), None)),
             Rule::string_raw => Ok((Some(Types::String), None)),
 
-            Rule::ident => match ident_types.get(self.0.as_str()) {
-                Some((t, _)) => Ok((Some(*t), None)),
-                None => Err(ValidationError::VariableNotDeclared(stmt_span)),
+            Rule::ident => {
+                match ident_types.entry(self.0.as_str()) {
+                    Entry::Occupied(mut e) => {
+                        let (t, _, used) = e.get_mut();
+                        *used = true;
+                        Ok((Some(*t), None))
+                    },
+                    Entry::Vacant(_) => Err(ValidationError::VariableNotDeclared(stmt_span)),
+                }
             },
             Rule::main => {
                 let mut acc = Vec::new();
@@ -145,7 +157,7 @@ impl<'a> AST<'a> {
                         Entry::Vacant(e) => {
                             let compiled_expr =
                                 Some(C::declare_var(ident.as_str(), lhs_type, expr, pratt, depth));
-                            e.insert((lhs_type, stmt_span));
+                            e.insert((lhs_type, stmt_span, false));
                             Ok((None, compiled_expr))
                         }
                     }

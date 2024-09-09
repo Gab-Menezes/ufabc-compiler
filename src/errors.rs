@@ -72,6 +72,9 @@ pub enum ValidationError<'a> {
     #[error("({}:{}) Variable not declared: `{}`", .0.start_pos().line_col().0, .0.start_pos().line_col().1, .0.as_str().trim())]
     VariableNotDeclared(Span<'a>),
 
+    #[error("({}:{}) Variable declared but not used: `{}`", .0.start_pos().line_col().0, .0.start_pos().line_col().1, .0.as_str().trim())]
+    VariableNotUsed(Span<'a>),
+
     #[error("{0:?}")]
     InvalidOperation(InvalidOperationError<'a>),
 }

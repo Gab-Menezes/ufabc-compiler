@@ -73,6 +73,10 @@ public class Main {
         double b = (1.0);
         boolean c = (true);
         String d = (new String("abc"));
+        System.out.println(a);
+        System.out.println(b);
+        System.out.println(c);
+        System.out.println(d);
 
     }
 }

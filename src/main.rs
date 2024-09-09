@@ -11,14 +11,14 @@ use code_gen::{byte_code::ByteCode, cpp::Cpp};
 use lang::Rule;
 use pest::{
     pratt_parser::{Assoc, Op, PrattParser},
-    Parser,
+    Parser as pParser,
 };
 
 use crate::{ast::AST, code_gen::java::Java, lang::LangParser};
 
-use clap::Parser as cParser;
+use clap::Parser;
 
-#[derive(cParser, Debug)]
+#[derive(Parser, Debug)]
 struct Args {
     #[arg(short, long)]
     input: PathBuf,
