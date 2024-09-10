@@ -10,6 +10,7 @@ main {
         }
     }
 
+    write("please type some ints");
     if (d == "abc") {
         while (b <= 10.0) {
             read(a);

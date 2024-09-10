@@ -11,6 +11,7 @@ int main() {
             std::cout << d << '\n';
         }
     }
+    std::cout << "please type some ints" << '\n';
     if (((d) == std::string("abc"))) {
         while (((b) <= (10.0))) {
             std::cin >> a;

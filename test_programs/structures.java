@@ -78,6 +78,7 @@ public class Main {
                 System.out.println(d);
             }
         }
+        System.out.println("please type some ints");
         if (compareEq((d), (new String("abc")))) {
             while (compareLe((b), (10.0))) {
                 a = _scanner.nextLong();

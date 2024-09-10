@@ -1,0 +1,4 @@
+main {
+    let a: string = "abc";
+    let a: string = "def";
+}
